@@ -1,0 +1,2294 @@
+Directory structure:
+└── nanopore-consensus-benchmark/
+    ├── README.md
+    ├── analysis_interface.ipynb
+    ├── data_functions copy.txt
+    ├── data_functions.py
+    ├── requirements.txt
+    ├── .dev.blueprint.md
+    ├── .dev.outline.md
+    ├── results/
+    ├── seqs/
+    └── summary/
+
+================================================
+File: README.md
+================================================
+# nanopore-consensus-benchmark
+Python program to evaluate performance of nanopore amplicon consensus sequence pipelines, presented through a Jupyter notebook
+
+
+
+================================================
+File: analysis_interface.ipynb
+================================================
+# Jupyter notebook converted to Python script.
+
+"""
+# Initial Setup and Config
+"""
+
+import data_functions
+import os
+from IPython.display import display
+import json
+import importlib
+
+
+# --- Configuration: Define Project Paths ---
+# You can change BASE_PROJECT_DIR if your data/results aren't relative to the notebook
+BASE_PROJECT_DIR = '.' # Assumes seqs, summary, results are subdirs of the notebook's dir or a linked dir
+
+# Define specific directories relative to the base
+SEQS_DIR = os.path.join(BASE_PROJECT_DIR, 'seqs')
+SUMMARY_DIR = os.path.join(BASE_PROJECT_DIR, 'summary')
+RESULTS_DIR = os.path.join(BASE_PROJECT_DIR, 'results')
+
+# Create results directory if it doesn't exist
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+print(f"Using Sequences Directory: {os.path.abspath(SEQS_DIR)}")
+print(f"Using Summary Directory:   {os.path.abspath(SUMMARY_DIR)}")
+print(f"Using Results Directory:   {os.path.abspath(RESULTS_DIR)}")
+
+# Output:
+#   Using Sequences Directory: c:\gitsync\nanopore-consensus-benchmark\seqs
+
+#   Using Summary Directory:   c:\gitsync\nanopore-consensus-benchmark\summary
+
+#   Using Results Directory:   c:\gitsync\nanopore-consensus-benchmark\results
+
+
+"""
+## Load Runs
+"""
+
+runs_df, runs_dict = data_functions.discover_runs(SEQS_DIR)
+
+print("Discovered Runs:")
+display(runs_df)
+print("\nRuns Dictionary:")
+print(runs_dict)
+# Output:
+#   Discovered Runs:
+
+#           dorado  guppy  Both Available
+
+#   Run ID                               
+
+#   OMDL1     True   True            True
+
+#   OMDL2     True   True            True
+
+#   OMDL3     True   True            True
+
+#   OMDL4     True   True            True
+
+#   OMDL5     True   True            True
+
+#   OMDL6     True   True            True
+
+#   OMDL7     True   True            True
+
+#   OMDL8     True   True            True
+
+#   OMDL9     True   True            True
+
+#   OMDL10    True   True            True
+
+#   OMDL12    True   True            True
+
+#   OMDL13    True   True            True
+#   
+
+#   Runs Dictionary:
+
+#   {'OMDL10': {'dorado': True, 'guppy': True}, 'OMDL12': {'dorado': True, 'guppy': True}, 'OMDL13': {'dorado': True, 'guppy': True}, 'OMDL1': {'dorado': True, 'guppy': True}, 'OMDL2': {'dorado': True, 'guppy': True}, 'OMDL3': {'dorado': True, 'guppy': True}, 'OMDL4': {'dorado': True, 'guppy': True}, 'OMDL5': {'dorado': True, 'guppy': True}, 'OMDL6': {'dorado': True, 'guppy': True}, 'OMDL7': {'dorado': True, 'guppy': True}, 'OMDL8': {'dorado': True, 'guppy': True}, 'OMDL9': {'dorado': True, 'guppy': True}}
+
+
+"""
+## Test loading sequences
+"""
+
+importlib.reload(data_functions)
+test_run_id = 'OMDL1' # Replace with a valid run ID from your data
+test_basecaller = 'dorado' # Replace 'dorado' or 'guppy' as available
+
+loaded_sequences = data_functions.load_sequences(test_run_id, test_basecaller, SEQS_DIR)
+
+if loaded_sequences is not None:
+    print(f"Successfully loaded data for {test_run_id} {test_basecaller}.")
+    print(f"Found data for {len(loaded_sequences)} unique sample IDs.")
+
+    # Example: Inspect data for one sample ID (replace 'OMDLxxxxx' with a real ID)
+    example_sample_id = list(loaded_sequences.keys())[0] # Get the first sample ID found
+    print(f"\nData for sample ID '{example_sample_id}':")
+    # Pretty print the list of sequence dictionaries for this sample
+    print(json.dumps(loaded_sequences[example_sample_id], indent=2, default=str)) # Use default=str to handle SeqRecord object if present
+
+    # Verify structure of one sequence entry
+    first_seq_data = loaded_sequences[example_sample_id][0]
+    print("\nStructure of one sequence entry:")
+    print(f"  Header: {first_seq_data.get('header')[:50]}...") # Show first 50 chars
+    print(f"  Length: {first_seq_data.get('length')}")
+    print(f"  RiC: {first_seq_data.get('ric')}")
+    print(f"  Sequence snippet: {first_seq_data.get('sequence')[:50]}...") # Show first 50 chars
+else:
+    print(f"Failed to load data for {test_run_id} {test_basecaller}. Check file path and format.")
+# Output:
+#   Successfully loaded data for OMDL1 dorado.
+
+#   Found data for 152 unique sample IDs.
+
+#   
+
+#   Data for sample ID 'OMDL00009':
+
+#   [
+
+#     {
+
+#       "header": "ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388",
+
+#       "sequence": "GTAAAAGTCGTAACAAGGTTTCCGTAGGTGAACCTGCGGAAGGATCATTATTGAATGAAATGTGCTTAGACTGATGCTGGCTCTATGGAGCATGGTGCACGTCTAGCATTCATCTCTGTCACCTGTGCACCATTTGTAGGCCTGGTTTGGGGATTTGCAATGCAGCTTTCCTTATTGGCATTTATTCAGGCCTATGTAATAATATTGTACAACACTGTATATATATCAAGTTGAGAATAATGTTATTGTAACAAACCTTATACAACTTTCAACAACGGATCTCTTGGCTCTCGCATCGATGAAGAACGCAGCGAAATGCGATAAGTAATGTGAATTGCAGAATTCAGTGAATCATCGAATCTTTGAACGCACCTTGCGCTCCTTGGTATTCCGAAGAGCATGCCTGTTTGAGTGTCATTAAATTCTCAACCTTTCTTGGCTTTATAGCTAAGTTTAAGGCTTGGTTGTGGAGGCTGCGGGCTTCTTAGAAGTCGGCTCTTCTTAAATATATTAGCGAAACCTTTTTGCTGATCATCTCTGGTGTGATAGTTTATCTACACCATTAAGAACAGCTTTGTGTGGTTTTAGCTTCTAACTGTCTCTTGGACAATTTATTGACAATCTGACCTCAAATCAGGTAGGATTACCCGCTGAACTTAAGATAA",
+
+#       "length": 665,
+
+#       "ric": 388,
+
+#       "seq_object": "ID: ONT01.09-A02-OMDL00009-iNat169115711-1\nName: ONT01.09-A02-OMDL00009-iNat169115711-1\nDescription: ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388\nNumber of features: 0\nSeq('GTAAAAGTCGTAACAAGGTTTCCGTAGGTGAACCTGCGGAAGGATCATTATTGA...TAA')"
+
+#     }
+
+#   ]
+
+#   
+
+#   Structure of one sequence entry:
+
+#     Header: ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388...
+
+#     Length: 665
+
+#     RiC: 388
+
+#     Sequence snippet: GTAAAAGTCGTAACAAGGTTTCCGTAGGTGAACCTGCGGAAGGATCATTA...
+
+
+"""
+## Test K-mer matching
+"""
+
+importlib.reload(data_functions)
+seq_a = "ATGCGATGCGATGCG"
+seq_b = "ATGCGATGCGATGCG" # Identical
+seq_c = "ATGCGATTCGATGCG" # One mismatch
+seq_d = "AAAAAAAAAAAAAAA" # Different
+seq_e = "ATGCG"             # Too short for k=7
+seq_f = ""                # Empty
+
+k_val = 7
+print(f"Similarity A vs B (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_b, k=k_val):.2f}%")
+print(f"Similarity A vs C (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_c, k=k_val):.2f}%") # Test mismatch 22.22%
+print(f"Similarity B vs A (k={k_val}): {data_functions.calculate_kmer_similarity(seq_b, seq_a, k=k_val):.2f}%") # Should be symmetric? Test.
+print(f"Similarity A vs D (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_d, k=k_val):.2f}%") # Test different sequence 0.00%
+print(f"Similarity A vs E (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_e, k=k_val):.2f}%") # Test too short sequence 0.00%
+print(f"Similarity A vs F (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_f, k=k_val):.2f}%") # Test empty sequence 0.00%
+
+k_val = 3
+print(f"\nSimilarity A vs C (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_c, k=k_val):.2f}%") # Test smaller k, 76.92%
+print(f"Similarity A vs E (k={k_val}): {data_functions.calculate_kmer_similarity(seq_a, seq_e, k=k_val):.2f}%") # Should work now
+
+"""
+## Test Global Alignments
+"""
+
+importlib.reload(data_functions)
+seq_a = "ATGCGATGCGATGCG"
+seq_b = "ATGCGATGCGATGCG" # Identical
+seq_c = "ATGCGATTCGATGCG" # One mismatch
+seq_d = "AAAAAAAAAAAAAAA" # Different
+seq_indel = "ATGCGATG---ATGCG" # Example with deletion relative to A
+
+align_ab = data_functions.align_sequences(seq_a, seq_b)
+align_ac = data_functions.align_sequences(seq_a, seq_c)
+align_ad = data_functions.align_sequences(seq_a, seq_d)
+align_a_indel = data_functions.align_sequences(seq_a, seq_indel)
+
+print("Alignment A vs B:")
+print(json.dumps(align_ab, indent=2, default=str)) # Use default=str to handle alignment obj if needed
+
+print("\nAlignment A vs C:")
+print(json.dumps(align_ac, indent=2, default=str))
+
+print("\nAlignment A vs D:")
+print(json.dumps(align_ad, indent=2, default=str))
+
+print("\nAlignment A vs Indel:")
+print(json.dumps(align_a_indel, indent=2, default=str))
+
+# Test empty sequence
+align_a_empty = data_functions.align_sequences(seq_a, "")
+print("\nAlignment A vs Empty:")
+print(align_a_empty)
+
+"""
+## Sequence Matching Logic
+"""
+
+importlib.reload(data_functions)
+# --- Define Test Sequences ---
+seq_a = "ATGCGATGCGATGCG"     # Base sequence
+seq_b = "ATGCGATGCGATGCG"     # Identical to A
+seq_c = "ATGCGATTCGATGCG"     # One mismatch vs A
+seq_d = "AAAAAAAAAAAAAAA"     # Very different from A
+seq_indel = "ATGCGATG---ATGCG"  # Contains gaps (Note: align_sequences takes raw seqs, not pre-aligned)
+seq_e = "ATGCG"                 # Short sequence
+seq_f = ""                    # Empty sequence
+# Create sequences similar to D and C for testing many:many and ambiguous cases
+seq_d_like = "AAAAAAAAAAAAAAC" # Similar to D
+seq_c_prime = "ATGCGATTCAATGCG" # Similar to C (two mismatches vs A)
+
+# --- Helper Function to Create Sequence Records ---
+# Mimics the structure produced by load_sequences
+def create_record(seq_id: str, sequence: str, ric: int, source: str, sample: str, rep_num: int = 1):
+    """Creates a dictionary representing a sequence record."""
+    # Create a somewhat realistic header based on inputs
+    header = f">ONT01.01-{sample}-{seq_id}-iNat0000{rep_num} ric={ric}"
+    return {
+        'header': header,
+        'sequence': sequence,
+        'length': len(sequence),
+        'ric': ric,
+        'seq_object': None # Placeholder, not needed for matching logic testing
+    }
+
+# --- Create Mock Dorado Sequences Dictionary ---
+mock_dorado_seqs = {
+    # Scenario S1: Simple 1:1 High Identity
+    'S1': [create_record('D_S1_1', seq_a, 100, 'dorado', 'S1')],
+    # Scenario S2: Simple 1:1 Lower Identity
+    'S2': [create_record('D_S2_1', seq_a, 90, 'dorado', 'S2')],
+    # Scenario S3: Unmatched Pair
+    'S3': [create_record('D_S3_1', seq_a, 80, 'dorado', 'S3')],
+    # Scenario S4: Dorado Only Sample
+    'S4': [create_record('D_S4_1', seq_a, 70, 'dorado', 'S4')],
+    # Scenario S6: 1 Dorado, 2 Guppy
+    'S6': [create_record('D_S6_1', seq_a, 110, 'dorado', 'S6')],
+    # Scenario S7: 2 Dorado, 2 Guppy (Clear matches)
+    'S7': [
+        create_record('D_S7_1', seq_a, 120, 'dorado', 'S7', rep_num=1),
+        create_record('D_S7_2', seq_d, 50, 'dorado', 'S7', rep_num=2)
+    ],
+    # Scenario S8: 1 Dorado, 2 Guppy (Ambiguous matches)
+    'S8': [create_record('D_S8_1', seq_a, 130, 'dorado', 'S8')],
+}
+
+# --- Create Mock Guppy Sequences Dictionary ---
+mock_guppy_seqs = {
+    # Scenario S1: Simple 1:1 High Identity
+    'S1': [create_record('G_S1_1', seq_b, 95, 'guppy', 'S1')],
+    # Scenario S2: Simple 1:1 Lower Identity
+    'S2': [create_record('G_S2_1', seq_c, 85, 'guppy', 'S2')],
+    # Scenario S3: Unmatched Pair
+    'S3': [create_record('G_S3_1', seq_d, 75, 'guppy', 'S3')],
+    # Scenario S5: Guppy Only Sample
+    'S5': [create_record('G_S5_1', seq_a, 65, 'guppy', 'S5')],
+    # Scenario S6: 1 Dorado, 2 Guppy
+    'S6': [
+        create_record('G_S6_1', seq_b, 105, 'guppy', 'S6', rep_num=1), # Should match D_S6_1 well
+        create_record('G_S6_2', seq_c, 45, 'guppy', 'S6', rep_num=2)  # Should match D_S6_1 less well
+    ],
+    # Scenario S7: 2 Dorado, 2 Guppy (Clear matches)
+    'S7': [
+        create_record('G_S7_1', seq_b, 115, 'guppy', 'S7', rep_num=1), # Should match D_S7_1 (A)
+        create_record('G_S7_2', seq_d_like, 55, 'guppy', 'S7', rep_num=2) # Should match D_S7_2 (D)
+    ],
+    # Scenario S8: 1 Dorado, 2 Guppy (Ambiguous matches)
+    'S8': [
+        create_record('G_S8_1', seq_c, 125, 'guppy', 'S8', rep_num=1),       # Similar match to D_S8_1 (A)
+        create_record('G_S8_2', seq_c_prime, 110, 'guppy', 'S8', rep_num=2) # Also similar match to D_S8_1 (A)
+    ],
+}
+
+print("Mock data dictionaries created: mock_dorado_seqs, mock_guppy_seqs")
+# Print a sample entry to verify structure
+example_sample_id = 'S7'
+print(f"\nExample entry for {example_sample_id} in mock_dorado_seqs:")
+print(json.dumps(mock_dorado_seqs.get(example_sample_id, 'Not Found'), indent=2))
+print(f"\nExample entry for {example_sample_id} in mock_guppy_seqs:")
+print(json.dumps(mock_guppy_seqs.get(example_sample_id, 'Not Found'), indent=2))
+
+matched, dorado_unmatched, guppy_unmatched = data_functions.match_sequences(mock_dorado_seqs, mock_guppy_seqs)
+
+print(f"Matched pairs: {len(matched)}")
+print(f"Dorado-only: {len(dorado_unmatched)}")
+print(f"Guppy-only: {len(guppy_unmatched)}")
+
+print("\n--- Matched Pairs ---")
+for pair in matched:
+    print(f"  Sample: {pair['sample_id']}, "
+          f"D_Header: {pair['dorado'].get('header','N/A')}, "
+          f"G_Header: {pair['guppy'].get('header','N/A')}, "
+          f"Identity: {pair['alignment']['identity']:.2f}%, "
+          f"Multiple: {pair['multiple_matches']}, "
+          f"Confidence: {pair['match_confidence']}")
+
+print("\n--- Dorado Only ---")
+for item in dorado_unmatched:
+    print(f"  Sample: {item['sample_id']}, Header: {item['record'].get('header','N/A')}")
+
+print("\n--- Guppy Only ---")
+for item in guppy_unmatched:
+    print(f"  Sample: {item['sample_id']}, Header: {item['record'].get('header','N/A')}")
+# Output:
+#   Mock data dictionaries created: mock_dorado_seqs, mock_guppy_seqs
+
+#   
+
+#   Example entry for S7 in mock_dorado_seqs:
+
+#   [
+
+#     {
+
+#       "header": ">ONT01.01-S7-D_S7_1-iNat00001 ric=120",
+
+#       "sequence": "ATGCGATGCGATGCG",
+
+#       "length": 15,
+
+#       "ric": 120,
+
+#       "seq_object": null
+
+#     },
+
+#     {
+
+#       "header": ">ONT01.01-S7-D_S7_2-iNat00002 ric=50",
+
+#       "sequence": "AAAAAAAAAAAAAAA",
+
+#       "length": 15,
+
+#       "ric": 50,
+
+#       "seq_object": null
+
+#     }
+
+#   ]
+
+#   
+
+#   Example entry for S7 in mock_guppy_seqs:
+
+#   [
+
+#     {
+
+#       "header": ">ONT01.01-S7-G_S7_1-iNat00001 ric=115",
+
+#       "sequence": "ATGCGATGCGATGCG",
+
+#       "length": 15,
+
+#       "ric": 115,
+
+#       "seq_object": null
+
+#     },
+
+#     {
+
+#       "header": ">ONT01.01-S7-G_S7_2-iNat00002 ric=55",
+
+#       "sequence": "AAAAAAAAAAAAAAC",
+
+#       "length": 15,
+
+#       "ric": 55,
+
+#       "seq_object": null
+
+#     }
+
+#   ]
+
+#   Processing 6 samples common to both Dorado and Guppy...
+
+#   Processing 1 samples unique to Dorado...
+
+#   Processing 1 samples unique to Guppy...
+
+#   Matching complete. Found 6 matched pairs, 2 Dorado-only sequences, 4 Guppy-only sequences.
+
+#   Matched pairs: 6
+
+#   Dorado-only: 2
+
+#   Guppy-only: 4
+
+#   
+
+#   --- Matched Pairs ---
+
+#     Sample: S8, D_Header: >ONT01.01-S8-D_S8_1-iNat00001 ric=130, G_Header: >ONT01.01-S8-G_S8_1-iNat00001 ric=125, Identity: 93.33%, Multiple: False, Confidence: medium
+
+#     Sample: S2, D_Header: >ONT01.01-S2-D_S2_1-iNat00001 ric=90, G_Header: >ONT01.01-S2-G_S2_1-iNat00001 ric=85, Identity: 93.33%, Multiple: False, Confidence: medium
+
+#     Sample: S1, D_Header: >ONT01.01-S1-D_S1_1-iNat00001 ric=100, G_Header: >ONT01.01-S1-G_S1_1-iNat00001 ric=95, Identity: 100.00%, Multiple: False, Confidence: high
+
+#     Sample: S6, D_Header: >ONT01.01-S6-D_S6_1-iNat00001 ric=110, G_Header: >ONT01.01-S6-G_S6_1-iNat00001 ric=105, Identity: 100.00%, Multiple: False, Confidence: high
+
+#     Sample: S7, D_Header: >ONT01.01-S7-D_S7_1-iNat00001 ric=120, G_Header: >ONT01.01-S7-G_S7_1-iNat00001 ric=115, Identity: 100.00%, Multiple: False, Confidence: high
+
+#     Sample: S7, D_Header: >ONT01.01-S7-D_S7_2-iNat00002 ric=50, G_Header: >ONT01.01-S7-G_S7_2-iNat00002 ric=55, Identity: 93.33%, Multiple: False, Confidence: medium
+
+#   
+
+#   --- Dorado Only ---
+
+#     Sample: S3, Header: >ONT01.01-S3-D_S3_1-iNat00001 ric=80
+
+#     Sample: S4, Header: >ONT01.01-S4-D_S4_1-iNat00001 ric=70
+
+#   
+
+#   --- Guppy Only ---
+
+#     Sample: S8, Header: >ONT01.01-S8-G_S8_2-iNat00002 ric=110
+
+#     Sample: S3, Header: >ONT01.01-S3-G_S3_1-iNat00001 ric=75
+
+#     Sample: S6, Header: >ONT01.01-S6-G_S6_2-iNat00002 ric=45
+
+#     Sample: S5, Header: >ONT01.01-S5-G_S5_1-iNat00001 ric=65
+
+
+
+
+================================================
+File: data_functions copy.txt
+================================================
+import os
+import re
+import glob
+import pandas as pd
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio import Align
+
+
+def natural_sort_key(s):
+    """Helper function for natural sorting of strings containing numbers with prefixes"""
+    # Extract just the number from OMDL prefix
+    match = re.search(r'OMDL(\d+)', s)
+    if match:
+        # Return the number as an integer for proper numerical sorting
+        return int(match.group(1))
+    # Fallback for strings without the expected format or if sorting non-OMDL strings
+    # Returning a large number ensures non-matching formats sort last,
+    # or return 0/s depending on desired behavior for malformed names.
+    return float('inf') # Or return 0, or s
+
+
+def extract_run_info(filename: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract run ID (e.g., "OMDL1") and basecaller (e.g., "dorado") from filename.
+    Assumes filename format like 'OMDL{number}_seqs_{basecaller}.fasta'.
+    """
+    # Use regex to capture the number and the basecaller name
+    # Pattern: OMDL followed by digits, then _seqs_, then the basecaller name, ending with .fasta
+    pattern = r"OMDL(\d+)_seqs_(\w+)\.fasta"
+    match = re.search(pattern, filename, re.IGNORECASE) # Use IGNORECASE if dorado/guppy might vary in case
+    if match:
+        run_number = match.group(1)
+        basecaller = match.group(2).lower() # Normalize to lowercase
+        run_id = f"OMDL{run_number}"
+        # Ensure only expected basecallers are recognized
+        if basecaller in ['dorado', 'guppy']:
+            return run_id, basecaller
+    return None, None
+
+def discover_runs(seqs_dir: str) -> Tuple[pd.DataFrame, dict]:
+    """
+    Discover all available runs in the seqs directory and check for paired Dorado/Guppy data.
+
+    Args:
+        seqs_dir: The path to the directory containing sequence FASTA files.
+
+    Returns:
+        A tuple containing:
+        - A pandas DataFrame summarizing runs and basecaller availability.
+        - A dictionary mapping run IDs to their basecaller status.
+    """
+    # Define the pattern to search for FASTA files
+    pattern = os.path.join(seqs_dir, "OMDL*_seqs_*.fasta")
+    seq_files = glob.glob(pattern)
+
+    # Use a dictionary to store run status: {run_id: {'dorado': False, 'guppy': False}}
+    all_runs_status = {}
+
+    # Extract run IDs and basecallers from filenames
+    for file_path in seq_files:
+        filename = os.path.basename(file_path)
+        run_id, basecaller = extract_run_info(filename)
+
+        if run_id and basecaller:  # Ensure both were successfully extracted
+            # Initialize run_id entry if it's the first time seeing it
+            if run_id not in all_runs_status:
+                all_runs_status[run_id] = {'dorado': False, 'guppy': False}
+            # Update the status for the detected basecaller
+            all_runs_status[run_id][basecaller] = True
+
+    # Prepare data for DataFrame conversion
+    if all_runs_status:
+        # Sort the dictionary by run_id using the natural sort key
+        sorted_run_ids = sorted(all_runs_status.keys(), key=natural_sort_key)
+        sorted_runs_dict = {run_id: all_runs_status[run_id] for run_id in sorted_run_ids}
+
+        # Convert the sorted dictionary to a DataFrame
+        runs_df = pd.DataFrame.from_dict(sorted_runs_dict, orient='index')
+        runs_df.index.name = 'Run ID'
+        # Add the 'Both Available' column
+        runs_df['Both Available'] = runs_df['dorado'] & runs_df['guppy']
+    else:
+        # Create an empty DataFrame with the expected columns if no runs were found
+        runs_df = pd.DataFrame(columns=['dorado', 'guppy', 'Both Available'])
+        runs_df.index.name = 'Run ID'
+
+    return runs_df, all_runs_status # Return both the DF and the dict
+
+def extract_sample_id(header: str) -> Optional[str]:
+    """
+    Extract the unique sample identifier (e.g., "OMDL00009") from a FASTA header.
+    Example Header: >ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388
+    """
+    # Regex to find the OMDL part specifically
+    # Looks for '-OMDL' followed by digits, capturing the 'OMDL' + digits part
+    pattern = r"-(OMDL\d+)"
+    match = re.search(pattern, header)
+    if match:
+        return match.group(1) # Returns "OMDLxxxxx"
+    # Fallback or logging if pattern not found, depending on how strict you need to be
+    # print(f"Warning: Could not extract OMDL sample ID from header: {header}")
+    return None
+
+def parse_ric_value(header: str) -> Optional[int]:
+    """
+    Extract RiC (Reads in Consensus) value from sequence header. eg ric=388
+    """
+    pattern = r"ric=(\d+)" # Looks for 'ric=' followed by digits
+    match = re.search(pattern, header)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            # Handle case where digits might be invalid, though unlikely with \d+
+            return None
+    return None
+
+def load_sequences(run_id: str, basecaller: str, seqs_dir: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """
+    Load sequences from a FASTA file for a specific run and basecaller,
+    organizing them by sample ID.
+
+    Args:
+        run_id: The run identifier (e.g., "OMDL1").
+        basecaller: The basecaller name ("dorado" or "guppy").
+        seqs_dir: The path to the directory containing sequence FASTA files.
+
+    Returns:
+        A dictionary mapping sample IDs (e.g., "OMDL00009") to lists of
+        sequence record dictionaries, or None if the file doesn't exist.
+        Each sequence dict contains: 'header', 'sequence', 'length', 'ric', 'seq_object'.
+    """
+    # Construct the full path to the FASTA file
+    filename = f"{run_id}_seqs_{basecaller}.fasta"
+    filepath = os.path.join(seqs_dir, filename)
+
+    # Check if the file exists before attempting to open
+    if not os.path.exists(filepath):
+        print(f"Warning: File not found - {filepath}")
+        return None
+
+    # Use defaultdict for convenient appending to lists for each sample_id
+    sequences_by_sample = defaultdict(list)
+
+    try:
+        # Parse the FASTA file using Biopython
+        for record in SeqIO.parse(filepath, "fasta"):
+            # Extract the unique sample ID (e.g., "OMDLxxxxx")
+            sample_id = extract_sample_id(record.description)
+
+            # If a valid sample ID is found, process the record
+            if sample_id:
+                ric_value = parse_ric_value(record.description)
+                sequence_str = str(record.seq)
+                sequence_len = len(sequence_str)
+
+                # Store the relevant information in a dictionary
+                sequence_data = {
+                    'header': record.description,
+                    'sequence': sequence_str,
+                    'length': sequence_len,
+                    'ric': ric_value,
+                    # Optionally store the full SeqRecord object if needed for complex BioPython tasks later
+                    'seq_object': record
+                }
+                # Append this sequence's data to the list for its sample ID
+                sequences_by_sample[sample_id].append(sequence_data)
+
+    except FileNotFoundError:
+        # This case is technically handled by os.path.exists, but good practice
+        print(f"Error: File not found during parsing - {filepath}")
+        return None
+    except Exception as e:
+        # Catch other potential errors during file parsing
+        print(f"Error parsing FASTA file {filepath}: {e}")
+        return None # Or raise the exception depending on desired error handling
+
+    # Return the dictionary (convert defaultdict to dict if preferred, though not necessary)
+    return dict(sequences_by_sample)
+
+def calculate_kmer_similarity(seq1: str, seq2: str, k: int = 7) -> float:
+    """
+    Calculate similarity between two sequences based on shared k-mers.
+    Uses counts of k-mers to provide a similarity score.
+
+    Args:
+        seq1: The first sequence string.
+        seq2: The second sequence string.
+        k: The k-mer size (default: 7).
+
+    Returns:
+        A similarity score between 0.0 and 100.0, representing the percentage
+        of k-mers in seq2 that are also found in seq1 (considering counts).
+        Returns 0.0 if either sequence is too short for k-mers or if seq2 has no k-mers.
+    """
+    len1 = len(seq1)
+    len2 = len(seq2)
+
+    # --- Edge Case Handling ---
+    # If either sequence is shorter than k, no k-mers can be generated.
+    if len1 < k or len2 < k:
+        return 0.0
+
+    # --- Generate k-mer counts for seq1 ---
+    seq1_kmers = {} # Dictionary to store k-mer counts for seq1
+    for i in range(len1 - k + 1):
+        kmer = seq1[i:i+k]
+        seq1_kmers[kmer] = seq1_kmers.get(kmer, 0) + 1
+
+    # --- Compare k-mers in seq2 ---
+    shared_kmers_count = 0
+    total_kmers_in_seq2 = len2 - k + 1 # Total k-mers possible in seq2
+
+    # Keep track of k-mers already counted from seq2 to respect counts in seq1
+    seq2_kmers_counted = {}
+
+    for i in range(total_kmers_in_seq2):
+        kmer = seq2[i:i+k]
+
+        # Check if this k-mer exists in seq1
+        if kmer in seq1_kmers:
+            # Check how many times we've seen this k-mer in seq2 so far
+            current_count_in_seq2 = seq2_kmers_counted.get(kmer, 0)
+            # If we haven't counted this k-mer from seq2 more times than it appears in seq1,
+            # increment shared count and update counted dictionary for seq2.
+            if current_count_in_seq2 < seq1_kmers[kmer]:
+                shared_kmers_count += 1
+                seq2_kmers_counted[kmer] = current_count_in_seq2 + 1
+
+    # --- Calculate Similarity Score ---
+    if total_kmers_in_seq2 == 0:
+        return 0.0 # Avoid division by zero if seq2 has no k-mers (though handled by length check)
+
+    similarity = (shared_kmers_count / total_kmers_in_seq2) * 100.0
+    return similarity
+
+def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
+    """
+    Performs global pairwise alignment of two sequences using Bio.Align.PairwiseAligner
+    and calculates alignment metrics.
+
+    Args:
+        seq1: The first sequence string.
+        seq2: The second sequence string.
+
+    Returns:
+        A dictionary containing alignment metrics:
+        {'identity': float, 'mismatches': int, 'insertions': int, 'deletions': int,
+         'alignment_length': int, 'score': float, 'alignment_obj': Bio.Align.Alignment object}
+        or None if alignment fails or sequences are empty.
+        'insertions' are gaps in seq1 relative to seq2.
+        'deletions' are gaps in seq2 relative to seq1.
+    """
+    # Handle empty sequences
+    if not seq1 or not seq2:
+        return None
+
+    # --- Configure the Aligner ---
+    aligner = Align.PairwiseAligner()
+    aligner.mode = 'global' # Global alignment (Needleman-Wunsch)
+
+    # --- !!! CHANGE SCORING HERE !!! ---
+    # Penalize mismatches and gaps
+    # Example scores (these can be tuned):
+    aligner.match_score = 1.0   # Score for a match (default is 1.0)
+    aligner.mismatch_score = -1.0 # usually negative of match_score, possibly x2
+    aligner.open_gap_score = -2 # Penalty for opening a gap (default is -2.0); should be larger than extend_gap_score
+    aligner.extend_gap_score = -1 # Penalty for extending a gap (default is -1.0)
+
+
+    try:
+        # --- Perform Alignment ---
+        # aligner.align returns an iterator; get the best one (or first if scores are simple)
+        # Using next() is efficient to get just the first/best result
+        alignment = next(aligner.align(seq1, seq2), None)
+
+    except OverflowError:
+        # Handle cases where alignment complexity is too high [cite: 24]
+        print(f"Warning: Alignment OverflowError for sequences of length {len(seq1)} and {len(seq2)}. Skipping alignment.")
+        return None # Indicate failure
+    except Exception as e:
+        # Catch other potential alignment errors
+        print(f"Warning: Alignment failed for sequences of length {len(seq1)} and {len(seq2)}: {e}")
+        return None # Indicate failure
+
+    # Check if an alignment was found
+    if alignment is None:
+        # This might happen if sequences are extremely dissimilar with heavy penalties,
+        # though unlikely with 0 penalties.
+        return None
+
+    # --- Calculate Metrics Directly from Alignment Object ---
+    # Biopython's alignment object allows direct comparison of aligned sequences
+    aligned_seq1, aligned_seq2 = alignment[0], alignment[1]
+    alignment_length = len(aligned_seq1)
+
+    if alignment_length == 0: # Should not happen if sequences were not empty, but check.
+         return None
+
+    matches = 0
+    mismatches = 0
+    insertions = 0 # Gaps in seq1 ('-')
+    deletions = 0  # Gaps in seq2 ('-')
+
+    for char1, char2 in zip(aligned_seq1, aligned_seq2):
+        if char1 == char2:
+            matches += 1
+        elif char1 == '-':
+            insertions += 1
+        elif char2 == '-':
+            deletions += 1
+        else:
+            mismatches += 1
+
+    # Calculate percentage identity
+    identity_percent = (matches / alignment_length) * 100.0
+
+    # Store results in a dictionary
+    results = {
+        'identity': identity_percent,
+        'mismatches': mismatches,
+        'insertions': insertions, # gaps in seq1
+        'deletions': deletions,   # gaps in seq2
+        'alignment_length': alignment_length,
+        'score': alignment.score,
+        'alignment_obj': alignment # Store the object if needed later (e.g., for visualization)
+    }
+    return results
+
+def match_sequences(
+    dorado_seqs: Dict[str, List[Dict[str, Any]]],
+    guppy_seqs: Dict[str, List[Dict[str, Any]]]
+) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+    """
+    Matches sequences between Dorado and Guppy datasets for each sample,
+    using k-mer similarity and pairwise alignment.
+
+    Args:
+        dorado_seqs: Dictionary mapping sample IDs to lists of Dorado sequence records.
+                     (Output of load_sequences).
+        guppy_seqs: Dictionary mapping sample IDs to lists of Guppy sequence records.
+                    (Output of load_sequences).
+
+    Returns:
+        A tuple containing three lists:
+        - matched_pairs: List of dictionaries, each representing a matched pair.
+                         Includes sample_id, dorado record, guppy record, alignment results,
+                         multiple_matches flag, and match_confidence.
+        - dorado_only: List of dictionaries for Dorado sequences with no match found.
+                       Includes sample_id and the dorado record.
+        - guppy_only: List of dictionaries for Guppy sequences with no match found.
+                      Includes sample_id and the guppy record.
+    """
+    matched_pairs = []
+    dorado_only = []
+    guppy_only = []
+
+    # --- Configuration Thresholds ---
+    KMER_SIMILARITY_THRESHOLD = 50.0  # Min k-mer similarity (%) for considering alignment
+    LENGTH_RATIO_THRESHOLD = 0.5     # Min length ratio (shorter/longer) to consider match
+    HIGH_IDENTITY_THRESHOLD = 95.0    # Identity (%) for high-confidence 1:1 match
+    MULTIPLE_MATCH_IDENTITY_DIFF = 5.0 # Max identity % difference for considering ambiguous matches
+    # Maximum number of alignments to perform per sample in complex cases to limit computation
+    MAX_ALIGNMENTS_PER_SAMPLE = 20
+
+    # Get sets of sample IDs present in each dataset
+    dorado_sample_ids = set(dorado_seqs.keys())
+    guppy_sample_ids = set(guppy_seqs.keys())
+
+    # Identify common samples, and samples unique to each dataset
+    common_samples = dorado_sample_ids.intersection(guppy_sample_ids)
+    dorado_unique_samples = dorado_sample_ids - guppy_sample_ids
+    guppy_unique_samples = guppy_sample_ids - dorado_sample_ids
+
+    print(f"Processing {len(common_samples)} samples common to both Dorado and Guppy...")
+
+    # --- Process Common Samples ---
+    for sample_id in common_samples:
+        dorado_records = dorado_seqs[sample_id]
+        guppy_records = guppy_seqs[sample_id]
+        num_dorado = len(dorado_records)
+        num_guppy = len(guppy_records)
+
+        # Keep track of used sequence indices within this sample
+        used_dorado_indices = set()
+        used_guppy_indices = set()
+
+        # === Case 1: Simple 1-to-1 Match ===
+        if num_dorado == 1 and num_guppy == 1:
+            d_record = dorado_records[0]
+            g_record = guppy_records[0]
+            alignment_results = align_sequences(d_record['sequence'], g_record['sequence']) # Step 2.2
+
+            if alignment_results:
+                matched_pairs.append({
+                    'sample_id': sample_id,
+                    'dorado': d_record,
+                    'guppy': g_record,
+                    'alignment': alignment_results,
+                    'multiple_matches': False,
+                    'match_confidence': 'high' if alignment_results['identity'] >= HIGH_IDENTITY_THRESHOLD else ('medium' if alignment_results['identity'] >= 80 else 'low')
+                })
+                used_dorado_indices.add(0)
+                used_guppy_indices.add(0)
+            else:
+                # Alignment failed, treat as unmatched
+                pass # They will be added to _only lists later
+
+        # === Case 2: Complex Match (Multiple Sequences in Dorado or Guppy or Both) ===
+        elif num_dorado > 0 and num_guppy > 0:
+            potential_pair_scores = [] # Store tuples: (d_idx, g_idx, kmer_score)
+
+            # 1. Pre-filter pairs using k-mer similarity and length ratio
+            for d_idx, d_record in enumerate(dorado_records):
+                for g_idx, g_record in enumerate(guppy_records):
+                    len1, len2 = d_record['length'], g_record['length']
+                    if min(len1, len2) <= 0: continue # Skip empty sequences
+                    length_ratio = min(len1, len2) / max(len1, len2)
+
+                    if length_ratio >= LENGTH_RATIO_THRESHOLD:
+                        kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence']) # Step 2.1
+                        if kmer_sim >= KMER_SIMILARITY_THRESHOLD:
+                            potential_pair_scores.append((d_idx, g_idx, kmer_sim))
+
+            if not potential_pair_scores:
+                 # No pairs passed pre-filtering, all sequences are unmatched for this sample
+                 pass # They will be added to _only lists later
+
+            else:
+                # 2. Perform full alignment on promising pairs
+                potential_pair_scores.sort(key=lambda x: x[2], reverse=True) # Sort by k-mer score DESC
+                aligned_pairs = [] # Store tuples: (d_idx, g_idx, alignment_results)
+                alignment_cache = {} # Cache results: {(d_idx, g_idx): alignment_results}
+
+                pairs_to_align = potential_pair_scores[:MAX_ALIGNMENTS_PER_SAMPLE] # Limit alignments
+
+                for d_idx, g_idx, kmer_score in pairs_to_align:
+                    if (d_idx, g_idx) not in alignment_cache:
+                         alignment_results = align_sequences(dorado_records[d_idx]['sequence'], guppy_records[g_idx]['sequence'])
+                         alignment_cache[(d_idx, g_idx)] = alignment_results # Cache even if None
+
+                    alignment_results = alignment_cache[(d_idx, g_idx)]
+                    if alignment_results: # Only proceed if alignment was successful
+                        aligned_pairs.append((d_idx, g_idx, alignment_results))
+
+                # 3. Assign matches based on alignment identity
+                if aligned_pairs:
+                    aligned_pairs.sort(key=lambda x: x[2]['identity'], reverse=True) # Sort by identity DESC
+
+                    # First pass: Assign high-confidence unique matches
+                    for d_idx, g_idx, align_res in aligned_pairs:
+                        if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+                            if align_res['identity'] >= HIGH_IDENTITY_THRESHOLD:
+                                matched_pairs.append({
+                                    'sample_id': sample_id,
+                                    'dorado': dorado_records[d_idx],
+                                    'guppy': guppy_records[g_idx],
+                                    'alignment': align_res,
+                                    'multiple_matches': False,
+                                    'match_confidence': 'high'
+                                })
+                                used_dorado_indices.add(d_idx)
+                                used_guppy_indices.add(g_idx)
+
+                    # Second pass: Handle remaining sequences and potential ambiguities
+                    # Group remaining possible matches by dorado index
+                    remaining_potentials = defaultdict(list)
+                    for d_idx, g_idx, align_res in aligned_pairs:
+                         if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+                             remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
+
+                    for d_idx, possible_matches in remaining_potentials.items():
+                         if not possible_matches: continue # Should not happen based on logic, but safe check
+
+                         # Sort this dorado seq's possible guppy matches by identity
+                         possible_matches.sort(key=lambda x: x['identity'], reverse=True)
+                         best_match = possible_matches[0]
+                         best_g_idx = best_match['g_idx']
+                         best_identity = best_match['identity']
+
+                         # Find other matches within the identity difference threshold
+                         ambiguous_matches = [best_match]
+                         for match in possible_matches[1:]:
+                             if best_identity - match['identity'] <= MULTIPLE_MATCH_IDENTITY_DIFF:
+                                 ambiguous_matches.append(match)
+                             else:
+                                 break # Since they are sorted
+
+                         # Assign match(es)
+                         if len(ambiguous_matches) == 1:
+                             # Single clear best match for this dorado seq among remaining
+                             g_idx = best_g_idx
+                             align_res = alignment_cache.get((d_idx, g_idx))
+                             if align_res: # Should exist
+                                 matched_pairs.append({
+                                     'sample_id': sample_id,
+                                     'dorado': dorado_records[d_idx],
+                                     'guppy': guppy_records[g_idx],
+                                     'alignment': align_res,
+                                     'multiple_matches': False,
+                                     'match_confidence': 'medium' if best_identity >= 80 else 'low'
+                                 })
+                                 used_dorado_indices.add(d_idx)
+                                 used_guppy_indices.add(g_idx)
+                         else:
+                             # Ambiguous case: Multiple guppy seqs match this dorado seq similarly well
+                             for match in ambiguous_matches:
+                                 g_idx = match['g_idx']
+                                 # Check again if guppy index was used by another ambiguous match in this loop
+                                 if g_idx not in used_guppy_indices:
+                                     align_res = alignment_cache.get((d_idx, g_idx))
+                                     if align_res:
+                                         matched_pairs.append({
+                                             'sample_id': sample_id,
+                                             'dorado': dorado_records[d_idx],
+                                             'guppy': guppy_records[g_idx],
+                                             'alignment': align_res,
+                                             'multiple_matches': True, # Flag as ambiguous
+                                             'match_confidence': 'ambiguous',
+                                             'similarity_to_best': (match['identity'] / best_identity * 100.0) if best_identity > 0 else 0
+                                         })
+                                         used_guppy_indices.add(g_idx) # Mark guppy seq as used
+                             # Mark dorado seq as used after processing all its ambiguous matches
+                             used_dorado_indices.add(d_idx)
+
+
+        # --- Add any remaining unused sequences for this common sample to _only lists ---
+        for d_idx, d_record in enumerate(dorado_records):
+            if d_idx not in used_dorado_indices:
+                dorado_only.append({'sample_id': sample_id, 'record': d_record})
+        for g_idx, g_record in enumerate(guppy_records):
+            if g_idx not in used_guppy_indices:
+                guppy_only.append({'sample_id': sample_id, 'record': g_record})
+
+    # --- Add sequences from samples unique to one dataset ---
+    print(f"Processing {len(dorado_unique_samples)} samples unique to Dorado...")
+    for sample_id in dorado_unique_samples:
+        for record in dorado_seqs[sample_id]:
+            dorado_only.append({'sample_id': sample_id, 'record': record})
+
+    print(f"Processing {len(guppy_unique_samples)} samples unique to Guppy...")
+    for sample_id in guppy_unique_samples:
+        for record in guppy_seqs[sample_id]:
+            guppy_only.append({'sample_id': sample_id, 'record': record})
+
+    print(f"Matching complete. Found {len(matched_pairs)} matched pairs, "
+          f"{len(dorado_only)} Dorado-only sequences, {len(guppy_only)} Guppy-only sequences.")
+
+    return matched_pairs, dorado_only, guppy_only
+
+
+
+# Currently unused, but keeping for potential future use
+def load_summary(run_id: str, basecaller: str, summary_dir: str) -> Optional[Dict[str, Any]]:
+    """
+    Load summary data from the TSV-like .txt file for a specific run and basecaller.
+    Parses the main data table and extracts summary statistics from the end of the file.
+
+    Args:
+        run_id: The run identifier (e.g., "OMDL1").
+        basecaller: The basecaller name ("dorado" or "guppy").
+        summary_dir: The path to the directory containing summary .txt files.
+
+    Returns:
+        A dictionary containing the summary data DataFrame ('data') and
+        a dictionary of summary statistics ('stats'), or None if the file doesn't exist.
+        Stats dict includes: 'unique_samples', 'consensus_sequences', 'total_ric'.
+    """
+    # Construct the full path to the summary file (note the .txt extension)
+    filename = f"{run_id}_summary_{basecaller}.txt"
+    filepath = os.path.join(summary_dir, filename)
+
+    # Check if the file exists before attempting to open
+    if not os.path.exists(filepath):
+        print(f"Warning: Summary file not found - {filepath}")
+        return None
+
+    summary_df = None
+    summary_stats = {
+        'unique_samples': None,
+        'consensus_sequences': None,
+        'total_ric': None
+    }
+
+    try:
+        # Step 1: Read the main data table using pandas
+        # Assuming the table starts from the first line (header=0)
+        # and ends before the summary lines. pandas might stop reading
+        # automatically if the summary lines have a different number of columns,
+        # but explicitly handling might be safer if format varies.
+        # We'll read the whole file first, then extract summary lines separately.
+        summary_df = pd.read_csv(filepath, sep='\t', header=0)
+
+        # Remove potential summary lines that might have been read into the DataFrame
+        # Identify rows where the first column doesn't look like a filename (e.g., doesn't start with 'ONT')
+        # This assumes filenames always start with 'ONT', adjust if needed based on actual data.
+        if not summary_df.empty and summary_df.columns[0] == 'Filename': # Check if first column is 'Filename'
+             summary_df = summary_df[summary_df['Filename'].str.startswith('ONT', na=False)]
+
+        # Step 2: Read the file again to reliably extract summary statistics from the end
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            line = line.strip()
+            if not line: # Skip empty lines
+                continue
+
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                key = parts[0].strip()
+                value_str = parts[-1].strip() # Take the last part as value
+
+                try:
+                    value_int = int(value_str)
+                    if "Total Unique Samples" in key:
+                        summary_stats['unique_samples'] = value_int
+                    elif "Total Consensus Sequences" in key:
+                        summary_stats['consensus_sequences'] = value_int
+                    elif "Total Reads in Consensus Sequences" in key:
+                        summary_stats['total_ric'] = value_int
+                except ValueError:
+                    # Ignore lines where the value isn't an integer
+                    continue
+
+    except FileNotFoundError:
+        print(f"Error: Summary file not found during processing - {filepath}")
+        return None
+    except pd.errors.EmptyDataError:
+        print(f"Warning: Summary file is empty - {filepath}")
+        # Return dictionary with empty DataFrame and None stats
+        return {'data': pd.DataFrame(), 'stats': summary_stats}
+    except Exception as e:
+        print(f"Error processing summary file {filepath}: {e}")
+        return None # Or return partial data if appropriate
+
+    # Check if DataFrame was successfully loaded
+    if summary_df is None:
+         summary_df = pd.DataFrame() # Ensure a DataFrame is always returned
+
+    return {'data': summary_df, 'stats': summary_stats}
+
+
+================================================
+File: data_functions.py
+================================================
+import os
+import re
+import glob
+import pandas as pd
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio import Align
+
+
+def natural_sort_key(s):
+    """Helper function for natural sorting of strings containing numbers with prefixes"""
+    # Extract just the number from OMDL prefix
+    match = re.search(r'OMDL(\d+)', s)
+    if match:
+        # Return the number as an integer for proper numerical sorting
+        return int(match.group(1))
+    # Fallback for strings without the expected format or if sorting non-OMDL strings
+    # Returning a large number ensures non-matching formats sort last,
+    # or return 0/s depending on desired behavior for malformed names.
+    return float('inf') # Or return 0, or s
+
+
+def extract_run_info(filename: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract run ID (e.g., "OMDL1") and basecaller (e.g., "dorado") from filename.
+    Assumes filename format like 'OMDL{number}_seqs_{basecaller}.fasta'.
+    """
+    # Use regex to capture the number and the basecaller name
+    # Pattern: OMDL followed by digits, then _seqs_, then the basecaller name, ending with .fasta
+    pattern = r"OMDL(\d+)_seqs_(\w+)\.fasta"
+    match = re.search(pattern, filename, re.IGNORECASE) # Use IGNORECASE if dorado/guppy might vary in case
+    if match:
+        run_number = match.group(1)
+        basecaller = match.group(2).lower() # Normalize to lowercase
+        run_id = f"OMDL{run_number}"
+        # Ensure only expected basecallers are recognized
+        if basecaller in ['dorado', 'guppy']:
+            return run_id, basecaller
+    return None, None
+
+def discover_runs(seqs_dir: str) -> Tuple[pd.DataFrame, dict]:
+    """
+    Discover all available runs in the seqs directory and check for paired Dorado/Guppy data.
+
+    Args:
+        seqs_dir: The path to the directory containing sequence FASTA files.
+
+    Returns:
+        A tuple containing:
+        - A pandas DataFrame summarizing runs and basecaller availability.
+        - A dictionary mapping run IDs to their basecaller status.
+    """
+    # Define the pattern to search for FASTA files
+    pattern = os.path.join(seqs_dir, "OMDL*_seqs_*.fasta")
+    seq_files = glob.glob(pattern)
+
+    # Use a dictionary to store run status: {run_id: {'dorado': False, 'guppy': False}}
+    all_runs_status = {}
+
+    # Extract run IDs and basecallers from filenames
+    for file_path in seq_files:
+        filename = os.path.basename(file_path)
+        run_id, basecaller = extract_run_info(filename)
+
+        if run_id and basecaller:  # Ensure both were successfully extracted
+            # Initialize run_id entry if it's the first time seeing it
+            if run_id not in all_runs_status:
+                all_runs_status[run_id] = {'dorado': False, 'guppy': False}
+            # Update the status for the detected basecaller
+            all_runs_status[run_id][basecaller] = True
+
+    # Prepare data for DataFrame conversion
+    if all_runs_status:
+        # Sort the dictionary by run_id using the natural sort key
+        sorted_run_ids = sorted(all_runs_status.keys(), key=natural_sort_key)
+        sorted_runs_dict = {run_id: all_runs_status[run_id] for run_id in sorted_run_ids}
+
+        # Convert the sorted dictionary to a DataFrame
+        runs_df = pd.DataFrame.from_dict(sorted_runs_dict, orient='index')
+        runs_df.index.name = 'Run ID'
+        # Add the 'Both Available' column
+        runs_df['Both Available'] = runs_df['dorado'] & runs_df['guppy']
+    else:
+        # Create an empty DataFrame with the expected columns if no runs were found
+        runs_df = pd.DataFrame(columns=['dorado', 'guppy', 'Both Available'])
+        runs_df.index.name = 'Run ID'
+
+    return runs_df, all_runs_status # Return both the DF and the dict
+
+def extract_sample_id(header: str) -> Optional[str]:
+    """
+    Extract the unique sample identifier (e.g., "OMDL00009") from a FASTA header.
+    Example Header: >ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388
+    """
+    # Regex to find the OMDL part specifically
+    # Looks for '-OMDL' followed by digits, capturing the 'OMDL' + digits part
+    pattern = r"-(OMDL\d+)"
+    match = re.search(pattern, header)
+    if match:
+        return match.group(1) # Returns "OMDLxxxxx"
+    # Fallback or logging if pattern not found, depending on how strict you need to be
+    # print(f"Warning: Could not extract OMDL sample ID from header: {header}")
+    return None
+
+def parse_ric_value(header: str) -> Optional[int]:
+    """
+    Extract RiC (Reads in Consensus) value from sequence header. eg ric=388
+    """
+    pattern = r"ric=(\d+)" # Looks for 'ric=' followed by digits
+    match = re.search(pattern, header)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            # Handle case where digits might be invalid, though unlikely with \d+
+            return None
+    return None
+
+def load_sequences(run_id: str, basecaller: str, seqs_dir: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """
+    Load sequences from a FASTA file for a specific run and basecaller,
+    organizing them by sample ID.
+
+    Args:
+        run_id: The run identifier (e.g., "OMDL1").
+        basecaller: The basecaller name ("dorado" or "guppy").
+        seqs_dir: The path to the directory containing sequence FASTA files.
+
+    Returns:
+        A dictionary mapping sample IDs (e.g., "OMDL00009") to lists of
+        sequence record dictionaries, or None if the file doesn't exist.
+        Each sequence dict contains: 'header', 'sequence', 'length', 'ric', 'seq_object'.
+    """
+    # Construct the full path to the FASTA file
+    filename = f"{run_id}_seqs_{basecaller}.fasta"
+    filepath = os.path.join(seqs_dir, filename)
+
+    # Check if the file exists before attempting to open
+    if not os.path.exists(filepath):
+        print(f"Warning: File not found - {filepath}")
+        return None
+
+    # Use defaultdict for convenient appending to lists for each sample_id
+    sequences_by_sample = defaultdict(list)
+
+    try:
+        # Parse the FASTA file using Biopython
+        for record in SeqIO.parse(filepath, "fasta"):
+            # Extract the unique sample ID (e.g., "OMDLxxxxx")
+            sample_id = extract_sample_id(record.description)
+
+            # If a valid sample ID is found, process the record
+            if sample_id:
+                ric_value = parse_ric_value(record.description)
+                sequence_str = str(record.seq)
+                sequence_len = len(sequence_str)
+
+                # Store the relevant information in a dictionary
+                sequence_data = {
+                    'header': record.description,
+                    'sequence': sequence_str,
+                    'length': sequence_len,
+                    'ric': ric_value,
+                    # Optionally store the full SeqRecord object if needed for complex BioPython tasks later
+                    'seq_object': record
+                }
+                # Append this sequence's data to the list for its sample ID
+                sequences_by_sample[sample_id].append(sequence_data)
+
+    except FileNotFoundError:
+        # This case is technically handled by os.path.exists, but good practice
+        print(f"Error: File not found during parsing - {filepath}")
+        return None
+    except Exception as e:
+        # Catch other potential errors during file parsing
+        print(f"Error parsing FASTA file {filepath}: {e}")
+        return None # Or raise the exception depending on desired error handling
+
+    # Return the dictionary (convert defaultdict to dict if preferred, though not necessary)
+    return dict(sequences_by_sample)
+
+def calculate_kmer_similarity(seq1: str, seq2: str, k: int = 5) -> float:
+    """
+    Calculate similarity between two sequences based on shared k-mers.
+    Uses counts of k-mers to provide a similarity score.
+
+    Args:
+        seq1: The first sequence string.
+        seq2: The second sequence string.
+        k: The k-mer size (default: 7).
+
+    Returns:
+        A similarity score between 0.0 and 100.0, representing the percentage
+        of k-mers in seq2 that are also found in seq1 (considering counts).
+        Returns 0.0 if either sequence is too short for k-mers or if seq2 has no k-mers.
+    """
+    len1 = len(seq1)
+    len2 = len(seq2)
+
+    # --- Edge Case Handling ---
+    # If either sequence is shorter than k, no k-mers can be generated.
+    if len1 < k or len2 < k:
+        return 0.0
+
+    # --- Generate k-mer counts for seq1 ---
+    seq1_kmers = {} # Dictionary to store k-mer counts for seq1
+    for i in range(len1 - k + 1):
+        kmer = seq1[i:i+k]
+        seq1_kmers[kmer] = seq1_kmers.get(kmer, 0) + 1
+
+    # --- Compare k-mers in seq2 ---
+    shared_kmers_count = 0
+    total_kmers_in_seq2 = len2 - k + 1 # Total k-mers possible in seq2
+
+    # Keep track of k-mers already counted from seq2 to respect counts in seq1
+    seq2_kmers_counted = {}
+
+    for i in range(total_kmers_in_seq2):
+        kmer = seq2[i:i+k]
+
+        # Check if this k-mer exists in seq1
+        if kmer in seq1_kmers:
+            # Check how many times we've seen this k-mer in seq2 so far
+            current_count_in_seq2 = seq2_kmers_counted.get(kmer, 0)
+            # If we haven't counted this k-mer from seq2 more times than it appears in seq1,
+            # increment shared count and update counted dictionary for seq2.
+            if current_count_in_seq2 < seq1_kmers[kmer]:
+                shared_kmers_count += 1
+                seq2_kmers_counted[kmer] = current_count_in_seq2 + 1
+
+    # --- Calculate Similarity Score ---
+    if total_kmers_in_seq2 == 0:
+        return 0.0 # Avoid division by zero if seq2 has no k-mers (though handled by length check)
+
+    similarity = (shared_kmers_count / total_kmers_in_seq2) * 100.0
+    return similarity
+
+def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
+    """
+    Performs global pairwise alignment of two sequences using Bio.Align.PairwiseAligner
+    and calculates alignment metrics.
+
+    Args:
+        seq1: The first sequence string.
+        seq2: The second sequence string.
+
+    Returns:
+        A dictionary containing alignment metrics:
+        {'identity': float, 'mismatches': int, 'insertions': int, 'deletions': int,
+         'alignment_length': int, 'score': float, 'alignment_obj': Bio.Align.Alignment object}
+        or None if alignment fails or sequences are empty.
+        'insertions' are gaps in seq1 relative to seq2.
+        'deletions' are gaps in seq2 relative to seq1.
+    """
+    # Handle empty sequences
+    if not seq1 or not seq2:
+        return None
+
+    # --- Configure the Aligner ---
+    aligner = Align.PairwiseAligner()
+    aligner.mode = 'global' # Global alignment (Needleman-Wunsch)
+
+    # --- !!! CHANGE SCORING HERE !!! ---
+    # Penalize mismatches and gaps
+    # Example scores (these can be tuned):
+    aligner.match_score = 1.0   # Score for a match (default is 1.0)
+    aligner.mismatch_score = -1.0 # usually negative of match_score, possibly x2
+    aligner.open_gap_score = -2 # Penalty for opening a gap (default is -2.0); should be larger than extend_gap_score
+    aligner.extend_gap_score = -1 # Penalty for extending a gap (default is -1.0)
+
+
+    try:
+        # --- Perform Alignment ---
+        # aligner.align returns an iterator; get the best one (or first if scores are simple)
+        # Using next() is efficient to get just the first/best result
+        alignment = next(aligner.align(seq1, seq2), None)
+
+    except OverflowError:
+        # Handle cases where alignment complexity is too high [cite: 24]
+        print(f"Warning: Alignment OverflowError for sequences of length {len(seq1)} and {len(seq2)}. Skipping alignment.")
+        return None # Indicate failure
+    except Exception as e:
+        # Catch other potential alignment errors
+        print(f"Warning: Alignment failed for sequences of length {len(seq1)} and {len(seq2)}: {e}")
+        return None # Indicate failure
+
+    # Check if an alignment was found
+    if alignment is None:
+        # This might happen if sequences are extremely dissimilar with heavy penalties,
+        # though unlikely with 0 penalties.
+        return None
+
+    # --- Calculate Metrics Directly from Alignment Object ---
+    # Biopython's alignment object allows direct comparison of aligned sequences
+    aligned_seq1, aligned_seq2 = alignment[0], alignment[1]
+    alignment_length = len(aligned_seq1)
+
+    if alignment_length == 0: # Should not happen if sequences were not empty, but check.
+         return None
+
+    matches = 0
+    mismatches = 0
+    insertions = 0 # Gaps in seq1 ('-')
+    deletions = 0  # Gaps in seq2 ('-')
+
+    for char1, char2 in zip(aligned_seq1, aligned_seq2):
+        if char1 == char2:
+            matches += 1
+        elif char1 == '-':
+            insertions += 1
+        elif char2 == '-':
+            deletions += 1
+        else:
+            mismatches += 1
+
+    # Calculate percentage identity
+    identity_percent = (matches / alignment_length) * 100.0
+
+    # Store results in a dictionary
+    results = {
+        'identity': identity_percent,
+        'mismatches': mismatches,
+        'insertions': insertions, # gaps in seq1
+        'deletions': deletions,   # gaps in seq2
+        'alignment_length': alignment_length,
+        'score': alignment.score,
+        'alignment_obj': alignment # Store the object if needed later (e.g., for visualization)
+    }
+    return results
+
+def match_sequences(
+    dorado_seqs: Dict[str, List[Dict[str, Any]]],
+    guppy_seqs: Dict[str, List[Dict[str, Any]]]
+) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+    """
+    Matches sequences between Dorado and Guppy datasets for each sample,
+    using k-mer similarity and pairwise alignment.
+
+    Args:
+        dorado_seqs: Dictionary mapping sample IDs to lists of Dorado sequence records.
+                     (Output of load_sequences).
+        guppy_seqs: Dictionary mapping sample IDs to lists of Guppy sequence records.
+                    (Output of load_sequences).
+
+    Returns:
+        A tuple containing three lists:
+        - matched_pairs: List of dictionaries, each representing a matched pair.
+                         Includes sample_id, dorado record, guppy record, alignment results,
+                         multiple_matches flag, and match_confidence.
+        - dorado_only: List of dictionaries for Dorado sequences with no match found.
+                       Includes sample_id and the dorado record.
+        - guppy_only: List of dictionaries for Guppy sequences with no match found.
+                      Includes sample_id and the guppy record.
+    """
+    matched_pairs = []
+    dorado_only = []
+    guppy_only = []
+
+    # --- Configuration Thresholds ---
+    KMER_SIMILARITY_THRESHOLD = 50.0  # Min k-mer similarity (%) for considering alignment
+    LENGTH_RATIO_THRESHOLD = 0.5     # Min length ratio (shorter/longer) to consider match
+    HIGH_IDENTITY_THRESHOLD = 95.0    # Identity (%) for high-confidence 1:1 match
+    MULTIPLE_MATCH_IDENTITY_DIFF = 5.0 # Max identity % difference for considering ambiguous matches
+    # Maximum number of alignments to perform per sample in complex cases to limit computation
+    MAX_ALIGNMENTS_PER_SAMPLE = 20
+
+    # Get sets of sample IDs present in each dataset
+    dorado_sample_ids = set(dorado_seqs.keys())
+    guppy_sample_ids = set(guppy_seqs.keys())
+
+    # Identify common samples, and samples unique to each dataset
+    common_samples = dorado_sample_ids.intersection(guppy_sample_ids)
+    dorado_unique_samples = dorado_sample_ids - guppy_sample_ids
+    guppy_unique_samples = guppy_sample_ids - dorado_sample_ids
+
+    print(f"Processing {len(common_samples)} samples common to both Dorado and Guppy...")
+
+    # --- Process Common Samples ---
+    for sample_id in common_samples:
+        dorado_records = dorado_seqs[sample_id]
+        guppy_records = guppy_seqs[sample_id]
+        num_dorado = len(dorado_records)
+        num_guppy = len(guppy_records)
+
+        # Keep track of used sequence indices within this sample
+        used_dorado_indices = set()
+        used_guppy_indices = set()
+
+        # === Case 1: Simple 1-to-1 Match ===
+        if num_dorado == 1 and num_guppy == 1:
+            d_record = dorado_records[0]
+            g_record = guppy_records[0]
+            alignment_results = align_sequences(d_record['sequence'], g_record['sequence']) # Step 2.2
+            MIN_IDENTITY_THRESHOLD_1_TO_1 = 70.0 # Example threshold, adjust if needed
+            if alignment_results and alignment_results['identity'] >= MIN_IDENTITY_THRESHOLD_1_TO_1:
+                matched_pairs.append({
+                    'sample_id': sample_id,
+                    'dorado': d_record,
+                    'guppy': g_record,
+                    'alignment': alignment_results,
+                    'multiple_matches': False,
+                    'match_confidence': 'high' if alignment_results['identity'] >= HIGH_IDENTITY_THRESHOLD else ('medium' if alignment_results['identity'] >= 80 else 'low')
+                })
+                used_dorado_indices.add(0)
+                used_guppy_indices.add(0)
+            else:
+                # Alignment failed, or identity too low. Treat as unmatched.
+                pass # They will be added to _only lists later
+
+        # === Case 2: Complex Match (Multiple Sequences in Dorado or Guppy or Both) ===
+        elif num_dorado > 0 and num_guppy > 0:
+            potential_pair_scores = [] # Store tuples: (d_idx, g_idx, kmer_score)
+
+            # 1. Pre-filter pairs using k-mer similarity and length ratio
+            for d_idx, d_record in enumerate(dorado_records):
+                for g_idx, g_record in enumerate(guppy_records):
+                    len1, len2 = d_record['length'], g_record['length']
+                    if min(len1, len2) <= 0: continue # Skip empty sequences
+                    length_ratio = min(len1, len2) / max(len1, len2)
+
+                    if length_ratio >= LENGTH_RATIO_THRESHOLD:
+                        kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence']) # Step 2.1
+
+                        if kmer_sim >= KMER_SIMILARITY_THRESHOLD:
+                            potential_pair_scores.append((d_idx, g_idx, kmer_sim))
+
+            if not potential_pair_scores:
+                 # No pairs passed pre-filtering, all sequences are unmatched for this sample
+                 pass # They will be added to _only lists later
+
+            else:
+                # 2. Perform full alignment on promising pairs
+                potential_pair_scores.sort(key=lambda x: x[2], reverse=True) # Sort by k-mer score DESC
+                aligned_pairs = [] # Store tuples: (d_idx, g_idx, alignment_results)
+                alignment_cache = {} # Cache results: {(d_idx, g_idx): alignment_results}
+
+                pairs_to_align = potential_pair_scores[:MAX_ALIGNMENTS_PER_SAMPLE] # Limit alignments
+
+
+                for d_idx, g_idx, kmer_score in pairs_to_align:
+                    if (d_idx, g_idx) not in alignment_cache:
+                         alignment_results = align_sequences(dorado_records[d_idx]['sequence'], guppy_records[g_idx]['sequence'])
+                         alignment_cache[(d_idx, g_idx)] = alignment_results # Cache even if None
+
+                    alignment_results = alignment_cache[(d_idx, g_idx)]
+                    if alignment_results: # Only proceed if alignment was successful
+                        aligned_pairs.append((d_idx, g_idx, alignment_results))
+
+                # 3. Assign matches based on alignment identity
+                if aligned_pairs:
+                    aligned_pairs.sort(key=lambda x: x[2]['identity'], reverse=True) # Sort by identity DESC
+
+                    # First pass: Assign high-confidence unique matches
+                    for d_idx, g_idx, align_res in aligned_pairs:
+                        if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+                            if align_res['identity'] >= HIGH_IDENTITY_THRESHOLD:
+                                matched_pairs.append({
+                                    'sample_id': sample_id,
+                                    'dorado': dorado_records[d_idx],
+                                    'guppy': guppy_records[g_idx],
+                                    'alignment': align_res,
+                                    'multiple_matches': False,
+                                    'match_confidence': 'high'
+                                })
+                                used_dorado_indices.add(d_idx)
+                                used_guppy_indices.add(g_idx)
+
+                    # Second pass: Handle remaining sequences and potential ambiguities
+                    # Group remaining possible matches by dorado index
+                    remaining_potentials = defaultdict(list)
+                    for d_idx, g_idx, align_res in aligned_pairs:
+                         if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+                             remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
+
+                    for d_idx, possible_matches in remaining_potentials.items():
+                         if not possible_matches: continue # Should not happen based on logic, but safe check
+
+                         # Sort this dorado seq's possible guppy matches by identity
+                         possible_matches.sort(key=lambda x: x['identity'], reverse=True)
+                         best_match = possible_matches[0]
+                         best_g_idx = best_match['g_idx']
+                         best_identity = best_match['identity']
+
+                         # Find other matches within the identity difference threshold
+                         ambiguous_matches = [best_match]
+                         for match in possible_matches[1:]:
+                             if best_identity - match['identity'] <= MULTIPLE_MATCH_IDENTITY_DIFF:
+                                 ambiguous_matches.append(match)
+                             else:
+                                 break # Since they are sorted
+
+                         # Assign match(es)
+                         if len(ambiguous_matches) == 1:
+                             # Single clear best match for this dorado seq among remaining
+                             g_idx = best_g_idx
+                             align_res = alignment_cache.get((d_idx, g_idx))
+                             if align_res: # Should exist
+                                 matched_pairs.append({
+                                     'sample_id': sample_id,
+                                     'dorado': dorado_records[d_idx],
+                                     'guppy': guppy_records[g_idx],
+                                     'alignment': align_res,
+                                     'multiple_matches': False,
+                                     'match_confidence': 'medium' if best_identity >= 80 else 'low'
+                                 })
+                                 used_dorado_indices.add(d_idx)
+                                 used_guppy_indices.add(g_idx)
+                         else:
+                             # Ambiguous case: Multiple guppy seqs match this dorado seq similarly well
+                             for match in ambiguous_matches:
+                                 g_idx = match['g_idx']
+                                 # Check again if guppy index was used by another ambiguous match in this loop
+                                 if g_idx not in used_guppy_indices:
+                                     align_res = alignment_cache.get((d_idx, g_idx))
+                                     if align_res:
+                                         matched_pairs.append({
+                                             'sample_id': sample_id,
+                                             'dorado': dorado_records[d_idx],
+                                             'guppy': guppy_records[g_idx],
+                                             'alignment': align_res,
+                                             'multiple_matches': True, # Flag as ambiguous
+                                             'match_confidence': 'ambiguous',
+                                             'similarity_to_best': (match['identity'] / best_identity * 100.0) if best_identity > 0 else 0
+                                         })
+                                         used_guppy_indices.add(g_idx) # Mark guppy seq as used
+                             # Mark dorado seq as used after processing all its ambiguous matches
+                             used_dorado_indices.add(d_idx)
+
+
+        # --- Add any remaining unused sequences for this common sample to _only lists ---
+        for d_idx, d_record in enumerate(dorado_records):
+            if d_idx not in used_dorado_indices:
+                dorado_only.append({'sample_id': sample_id, 'record': d_record})
+        for g_idx, g_record in enumerate(guppy_records):
+            if g_idx not in used_guppy_indices:
+                guppy_only.append({'sample_id': sample_id, 'record': g_record})
+
+    # --- Add sequences from samples unique to one dataset ---
+    print(f"Processing {len(dorado_unique_samples)} samples unique to Dorado...")
+    for sample_id in dorado_unique_samples:
+        for record in dorado_seqs[sample_id]:
+            dorado_only.append({'sample_id': sample_id, 'record': record})
+
+    print(f"Processing {len(guppy_unique_samples)} samples unique to Guppy...")
+    for sample_id in guppy_unique_samples:
+        for record in guppy_seqs[sample_id]:
+            guppy_only.append({'sample_id': sample_id, 'record': record})
+
+    print(f"Matching complete. Found {len(matched_pairs)} matched pairs, "
+          f"{len(dorado_only)} Dorado-only sequences, {len(guppy_only)} Guppy-only sequences.")
+
+    return matched_pairs, dorado_only, guppy_only
+
+
+
+# Currently unused, but keeping for potential future use
+def load_summary(run_id: str, basecaller: str, summary_dir: str) -> Optional[Dict[str, Any]]:
+    """
+    Load summary data from the TSV-like .txt file for a specific run and basecaller.
+    Parses the main data table and extracts summary statistics from the end of the file.
+
+    Args:
+        run_id: The run identifier (e.g., "OMDL1").
+        basecaller: The basecaller name ("dorado" or "guppy").
+        summary_dir: The path to the directory containing summary .txt files.
+
+    Returns:
+        A dictionary containing the summary data DataFrame ('data') and
+        a dictionary of summary statistics ('stats'), or None if the file doesn't exist.
+        Stats dict includes: 'unique_samples', 'consensus_sequences', 'total_ric'.
+    """
+    # Construct the full path to the summary file (note the .txt extension)
+    filename = f"{run_id}_summary_{basecaller}.txt"
+    filepath = os.path.join(summary_dir, filename)
+
+    # Check if the file exists before attempting to open
+    if not os.path.exists(filepath):
+        print(f"Warning: Summary file not found - {filepath}")
+        return None
+
+    summary_df = None
+    summary_stats = {
+        'unique_samples': None,
+        'consensus_sequences': None,
+        'total_ric': None
+    }
+
+    try:
+        # Step 1: Read the main data table using pandas
+        # Assuming the table starts from the first line (header=0)
+        # and ends before the summary lines. pandas might stop reading
+        # automatically if the summary lines have a different number of columns,
+        # but explicitly handling might be safer if format varies.
+        # We'll read the whole file first, then extract summary lines separately.
+        summary_df = pd.read_csv(filepath, sep='\t', header=0)
+
+        # Remove potential summary lines that might have been read into the DataFrame
+        # Identify rows where the first column doesn't look like a filename (e.g., doesn't start with 'ONT')
+        # This assumes filenames always start with 'ONT', adjust if needed based on actual data.
+        if not summary_df.empty and summary_df.columns[0] == 'Filename': # Check if first column is 'Filename'
+             summary_df = summary_df[summary_df['Filename'].str.startswith('ONT', na=False)]
+
+        # Step 2: Read the file again to reliably extract summary statistics from the end
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            line = line.strip()
+            if not line: # Skip empty lines
+                continue
+
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                key = parts[0].strip()
+                value_str = parts[-1].strip() # Take the last part as value
+
+                try:
+                    value_int = int(value_str)
+                    if "Total Unique Samples" in key:
+                        summary_stats['unique_samples'] = value_int
+                    elif "Total Consensus Sequences" in key:
+                        summary_stats['consensus_sequences'] = value_int
+                    elif "Total Reads in Consensus Sequences" in key:
+                        summary_stats['total_ric'] = value_int
+                except ValueError:
+                    # Ignore lines where the value isn't an integer
+                    continue
+
+    except FileNotFoundError:
+        print(f"Error: Summary file not found during processing - {filepath}")
+        return None
+    except pd.errors.EmptyDataError:
+        print(f"Warning: Summary file is empty - {filepath}")
+        # Return dictionary with empty DataFrame and None stats
+        return {'data': pd.DataFrame(), 'stats': summary_stats}
+    except Exception as e:
+        print(f"Error processing summary file {filepath}: {e}")
+        return None # Or return partial data if appropriate
+
+    # Check if DataFrame was successfully loaded
+    if summary_df is None:
+         summary_df = pd.DataFrame() # Ensure a DataFrame is always returned
+
+    return {'data': summary_df, 'stats': summary_stats}
+
+
+================================================
+File: requirements.txt
+================================================
+pandas
+numpy
+biopython>=1.80
+scipy
+matplotlib
+seaborn
+ipython
+pathlib
+plotly
+ipywidgets
+xlsxwriter
+requests
+openpyxl
+tqdm
+natsort
+
+
+================================================
+File: .dev.blueprint.md
+================================================
+## Project Blueprint: Dorado vs. Guppy Nanopore Basecaller Comparison
+
+This blueprint outlines the steps to build the analysis tool, focusing on modularity (`data_functions.py`) and interactive exploration (`omdl_basecaller_comparison.ipynb`).
+
+**Phase 1: Core Data Loading and Setup**
+
+* **Goal:** Establish the project structure, basic data loading functions, and run discovery.
+* **Rationale:** Foundation for all subsequent steps. Reuses basic parsing logic from the previous implementation.
+
+    1.  [X] **Step 1.1: Project Setup & Environment**
+        * **Goal:** Create the project directory structure and set up the Python environment.
+        * **Module/File:** Project root, `requirements.txt`.
+        * **Implementation:**
+            * Create directories: `nanopore_consensus_stats/`, `seqs/`, `summary/`, `results/`.
+            * Create `requirements.txt` listing core dependencies (pandas, numpy, biopython>=1.80, scipy, matplotlib, seaborn, ipywidgets, natsort, openpyxl). Consider pinning versions later.
+            * Create empty `data_functions.py` and `omdl_basecaller_comparison.ipynb`.
+            * Set up a virtual environment and install requirements.
+        * **Output:** Correct directory structure, populated `requirements.txt`, empty core files.
+        * **Testing:** Environment activates, `pip install -r requirements.txt` succeeds.
+
+    2.  [X] **Step 1.2: Implement Run Discovery**
+        * **Goal:** Create a function to find available runs and check for paired Dorado/Guppy data.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Path to the `seqs/` directory.
+        * **Implementation:**
+            * Define `BASE_DIR`, `SEQS_DIR`, `SUMMARY_DIR`, `RESULTS_DIR` constants **IN NOTEBOOK**
+            * Implement `natural_sort_key` helper function (reuse prior).
+            * Implement `extract_run_info(filename)` (reuse prior logic).
+            * Implement `discover_runs(seqs_dir)`:
+                * Use `glob` to find FASTA files in `seqs_dir`.
+                * Use `extract_run_info` to parse run ID and basecaller.
+                * Store results in a dictionary `{run_id: {'dorado': bool, 'guppy': bool}}`.
+                * Convert to a pandas DataFrame, naturally sort by Run ID, add 'Both Available' column.
+                * Handle cases with no runs found.
+                * Return the DataFrame and the dictionary.
+        * **Output:** `discover_runs` function.
+        * **Testing:** In the notebook, call `discover_runs` and display the resulting DataFrame. Verify it correctly identifies runs and paired data based on dummy files in `seqs/`.
+
+    3.  [X] **Step 1.3: Implement Sequence Data Loading**
+        * **Goal:** Load FASTA sequences, parsing relevant header information.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Run ID (e.g., "OMDL1"), basecaller ("dorado" or "guppy"), `SEQS_DIR` path.
+        * **Implementation:**
+            * Implement `extract_sample_id(header)` (reuse prior logic).
+            * Implement `parse_ric_value(header)` (reuse prior logic).
+            * Implement `load_sequences(run_id, basecaller)`:
+                * Construct the filepath using `os.path.join`.
+                * Check if file exists; return `None` if not.
+                * Use `Bio.SeqIO.parse` to read the FASTA file.
+                * For each record, extract `sample_id`, `ric`, `length`, and store sequence as string.
+                * Store results in a `defaultdict(list)` mapping `sample_id` to a list of dictionaries, each containing `header`, `sequence`, `length`, `ric`, and potentially the `SeqRecord` object.
+                * Return the dictionary.
+        * **Output:** `load_sequences` function and helpers.
+        * **Testing:** In the notebook, select a valid run ID and basecaller, call `load_sequences`, and inspect the structure of the returned dictionary. Check a few entries for correctness.
+
+    4.  [X] **Step 1.4: Implement Summary Data Loading (Optional, maybe unused)**
+        * **Goal:** Load summary statistics from the `.txt` files. While sequence headers contain RiC and Sample ID, summary files provide quick access to total counts.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Run ID, basecaller, `SUMMARY_DIR` path.
+        * **Implementation:**
+            * Implement `load_summary(run_id, basecaller)`:
+                * Construct filepath.
+                * Check if file exists; return `None` if not.
+                * Read the main table using `pd.read_csv(filepath, sep='\t')`.
+                * Read the file again line-by-line to parse the trailing summary statistics (Total Unique Samples, Total Consensus Sequences, Total RiC).
+                * Return a dictionary containing the DataFrame (`'data'`) and the parsed stats (`'stats'`).
+        * **Output:** `load_summary` function.
+        * **Testing:** In the notebook, call `load_summary` for a valid run/basecaller and inspect the returned dictionary and DataFrame.
+
+**Phase 2: Sequence Matching and Core Alignment**
+
+* **Goal:** Implement the logic to match sequences between Dorado and Guppy datasets for the same sample.
+* **Rationale:** This is crucial for paired comparisons. Leverages the improved matching logic discussed.
+
+    1.  [X] **Step 2.1: Implement K-mer Similarity Function**
+        * **Goal:** Create a function for fast sequence similarity estimation using k-mers.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Two sequence strings (`seq1`, `seq2`), k-mer size (`k`).
+        * **Implementation:** Implement `calculate_kmer_similarity(seq1, seq2, k=7)` (reuse logic). Handle edge cases like short sequences. Ensure it returns a percentage score.
+        * **Output:** `calculate_kmer_similarity` function.
+        * **Testing:** Test with known similar and dissimilar sequences. Test edge cases (empty strings, short strings).
+
+    2.  [X] **Step 2.2: Implement Pairwise Alignment Wrapper**
+        * **Goal:** Create a robust wrapper around `Bio.Align.PairwiseAligner` to perform global alignment and extract key metrics.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Two sequence strings (`seq1`, `seq2`).
+        * **Implementation:**
+            * Implement `align_sequences(seq1, seq2)`:
+                * Use `Bio.Align.PairwiseAligner` with appropriate scoring (e.g., match=1, mismatch=0, gap penalties might need tuning, but start simple as in ). Set `mode='global'`.
+                * Handle potential `OverflowError` or other exceptions by possibly falling back to a basic identity calculation or returning default/error values. *Avoid* the complex approximate alignment from the old codeunless absolutely necessary and clearly documented.
+                * If alignment succeeds, extract the first alignment result.
+                * Format the alignment to get aligned strings.
+                * Calculate Identity %, mismatches, insertions (gaps in seq2), deletions (gaps in seq1).
+                * Return a dictionary: `{'identity': %, 'mismatches': N, 'insertions': N, 'deletions': N, 'alignment_obj': alignment, 'aligned_seq1': str, 'aligned_seq2': str}`.
+        * **Output:** `align_sequences` function.
+        * **Testing:** Test with known sequences, including identical, slightly different, and sequences with indels. Test error handling.
+
+    3.  [X] **Step 2.3: Implement Sequence Matching Logic**
+        * **Goal:** Match sequences based on Sample ID, using k-mer similarity and alignment.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Dorado sequences dict, Guppy sequences dict (outputs from Step 1.3).
+        * **Implementation:** Implement `match_sequences(dorado_seqs, guppy_seqs)`:
+            * Identify common Sample IDs.
+            * Iterate through common Sample IDs.
+            * **Case 1: 1 Dorado seq, 1 Guppy seq:** Directly align them using `align_sequences`. Add to `matched_pairs` list. Mark as `multiple_matches: False`.
+            * **Case 2: Multiple sequences in either/both:**
+                * Use `calculate_kmer_similarity` for all Dorado vs. Guppy pairs within the sample. Filter pairs below a threshold (e.g., 50%).
+                * Perform full alignment using `align_sequences` only on pairs passing the k-mer filter. Cache alignment results to avoid re-computation.
+                * Implement logic to assign matches greedily based on highest identity, ensuring one sequence is used only once *unless* multiple high-quality matches exist.
+                * Flag pairs considered ambiguous (multiple plausible matches for a single sequence) with `multiple_matches: True`. Add confidence info ('high', 'medium', 'low', 'ambiguous') based on identity score.
+                * Store results in `matched_pairs`.
+            * Identify sequences not part of any match and add them to `dorado_only` and `guppy_only` lists.
+            * Return `matched_pairs`, `dorado_only`, `guppy_only` lists.
+        * **Output:** `match_sequences` function.
+        * **Testing:** Test with diverse scenarios: simple 1:1 matches, samples with multiple sequences, samples only present in one dataset, samples with highly similar sequences causing ambiguity. Inspect the returned lists for correctness.
+
+**Phase 3: Analysis Metrics Calculation**
+
+* **Goal:** Implement functions to calculate the core and taxonomic relevance metrics.
+* **Rationale:** Generates the quantitative data needed for comparison and statistics.
+
+    1.  [ ] **Step 3.1: Calculate Basic Sequence Metrics**
+        * **Goal:** Ensure functions exist to calculate Length and GC Content.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Sequence string or `SeqRecord`.
+        * **Implementation:**
+            * Length is straightforward (`len(sequence)`).
+            * GC Content: Use `Bio.SeqUtils.gc_fraction`. Implement a simple wrapper function `calculate_gc_content(sequence_str)` that handles potential non-DNA characters if necessary (though `gc_fraction` might handle this) and returns the fraction.
+        * **Output:** Helper functions (or confirm direct use is sufficient).
+        * **Testing:** Test `calculate_gc_content` with known sequences.
+
+    2.  [ ] **Step 3.2: Calculate Homopolymer Metrics**
+        * **Goal:** Calculate statistics on homopolymer runs within sequences.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Sequence string. Minimum homopolymer length threshold (e.g., `min_len=5`).
+        * **Implementation:**
+            * Implement `analyze_homopolymers(sequence_str, min_len=5)`:
+                * Use regex (`re` module) to find all occurrences of A{min_len,}, T{min_len,}, C{min_len,}, G{min_len,}.
+                * Return a dictionary summarizing results, e.g., `{'A': [lengths], 'T': [lengths], 'C': [lengths], 'G': [lengths], 'total_count': N, 'max_len': M}`.
+        * **Output:** `analyze_homopolymers` function.
+        * **Testing:** Test with sequences containing various homopolymer runs.
+
+    3.  [ ] **Step 3.3: Calculate Ambiguity Metrics**
+        * **Goal:** Calculate the number or frequency of ambiguous bases (N's).
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Sequence string.
+        * **Implementation:**
+            * Implement `analyze_ambiguity(sequence_str)`:
+                * Count occurrences of 'N' (case-insensitive).
+                * Calculate frequency (`count / length`).
+                * Return a dictionary `{'count': N, 'frequency': float}`.
+        * **Output:** `analyze_ambiguity` function.
+        * **Testing:** Test with sequences containing N's and sequences without.
+
+    4.  [ ] **Step 3.4: Consolidate Metrics for Matched Pairs**
+        * **Goal:** Create a function or process to generate a DataFrame containing all relevant metrics for matched pairs, ready for statistical analysis and output.
+        * **Module/File:** `data_functions.py` or processing step within the notebook.
+        * **Inputs:** `matched_pairs` list (from Step 2.3).
+        * **Implementation:**
+            * Iterate through `matched_pairs`.
+            * For each pair, retrieve/calculate:
+                * Sample ID, Dorado Header, Guppy Header
+                * Dorado RiC, Guppy RiC, RiC Difference
+                * Dorado Length, Guppy Length, Length Difference
+                * Dorado GC, Guppy GC, GC Difference (using `calculate_gc_content`)
+                * Identity %, Mismatches, Insertions, Deletions (from alignment results)
+                * Dorado/Guppy Homopolymer stats (using `analyze_homopolymers`)
+                * Dorado/Guppy Ambiguity stats (using `analyze_ambiguity`)
+                * Match quality/confidence info.
+            * Compile results into a list of dictionaries.
+            * Convert the list into a pandas DataFrame.
+        * **Output:** A pandas DataFrame (`run_comparison_df`).
+        * **Testing:** Generate the DataFrame for a sample run and verify columns and values.
+
+**Phase 4: Statistical Analysis and Output Generation**
+
+* **Goal:** Implement non-parametric statistical tests and generate output files.
+* **Rationale:** Provides statistical rigor and shareable results.
+
+    1.  [ ] **Step 4.1: Implement Statistical Test Wrapper**
+        * **Goal:** Create a function to perform non-parametric paired tests.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** Two lists/arrays of paired numerical data (e.g., Dorado RiC, Guppy RiC).
+        * **Implementation:**
+            * Implement `perform_paired_nonparametric_test(data1, data2, test_type='wilcoxon')`:
+                * Use `scipy.stats.wilcoxon` for paired data (would need updating to use Wilcoxon instead of t-test).
+                * Handle potential errors (e.g., insufficient data).
+                * Return test statistic and p-value.
+        * **Output:** `perform_paired_nonparametric_test` function.
+        * **Testing:** Test with sample data, verify results against known examples or `scipy` documentation.
+
+    2.  [ ] **Step 4.2: Perform Run-Specific Statistical Analysis**
+        * **Goal:** Apply statistical tests to the consolidated metrics DataFrame for a single run.
+        * **Module/File:** `data_functions.py` or notebook cell.
+        * **Inputs:** `run_comparison_df` (from Step 3.4).
+        * **Implementation:**
+            * Call `perform_paired_nonparametric_test` for RiC, Length, GC Content, Homopolymer counts/lengths, Ambiguity counts.
+            * Calculate descriptive statistics (median difference, mean difference - use cautiously, IQR).
+            * Store results in a dictionary.
+        * **Output:** Dictionary containing statistical results for the run.
+        * **Testing:** Run analysis on a sample DataFrame, check results for plausibility.
+
+    3.  [ ] **Step 4.3: Generate Run-Specific TSV/CSV Output**
+        * **Goal:** Save the detailed comparison DataFrame for a single run.
+        * **Module/File:** `data_functions.py`.
+        * **Inputs:** `run_comparison_df` (Step 3.4), `run_id`, `RESULTS_DIR` path.
+        * **Implementation:**
+            * Implement `generate_run_output(run_df, run_id, output_dir)`:
+                * Construct filename (e.g., `{run_id}_comparison_data.csv`).
+                * Use `df.to_csv(filepath, sep='\t', index=False)` (or use comma for CSV). Adapt from.
+        * **Output:** `generate_run_output` function. Saved TSV/CSV file.
+        * **Testing:** Generate file for a sample run, inspect the file content and formatting.
+
+    4.  [ ] **Step 4.4: Generate Overall Summary Data and Output**
+        * **Goal:** Aggregate key statistics across all processed runs and save to a summary file.
+        * **Module/File:** `data_functions.py` or notebook processing loop.
+        * **Inputs:** Results (DataFrames, stats dicts) from all processed runs. `RESULTS_DIR` path.
+        * **Implementation:**
+            * Loop through results for each run.
+            * Extract/calculate summary info: Run ID, Sample counts, Sequence counts (total, matched, unique per basecaller), Median differences, p-values for key metrics (RiC, Length, etc.).
+            * Compile into a list of dictionaries.
+            * Convert to a pandas DataFrame (`overall_summary_df`).
+            * Implement `generate_overall_summary_output(overall_df, output_dir)`:
+                * Construct filename (e.g., `overall_comparison_summary.csv`).
+                * Save DataFrame to CSV/TSV. Adapt from.
+        * **Output:** `overall_summary_df` DataFrame, `generate_overall_summary_output` function, saved summary file.
+        * **Testing:** Generate summary file after processing multiple dummy runs, inspect content.
+
+**Phase 5: Jupyter Notebook Interface and Visualization**
+
+* **Goal:** Build the interactive notebook for analysis execution, visualization, and exploration.
+* **Rationale:** Provides the user interface for the analysis workflow.
+
+    1.  [ ] **Step 5.1: Notebook Setup and Workflow Orchestration**
+        * **Goal:** Structure the notebook, import functions, and define the main workflow.
+        * **Module/File:** `omdl_basecaller_comparison.ipynb`.
+        * **Implementation:**
+            * Add markdown cells for introduction, explanations (reuse from revised outline).
+            * Import necessary libraries and `data_functions`.
+            * Cell to define paths (`BASE_DIR`, etc.).
+            * Cell to call `discover_runs` and display the runs DataFrame.
+            * Implement a loop or function (`process_run` adapted from) that takes a `run_id`, calls loading functions (`load_sequences`, `load_summary`), matching (`match_sequences`), metric calculation (consolidate into `run_comparison_df` - Step 3.4), and statistical analysis (Step 4.2). Store results per run (e.g., in a dictionary `all_runs_data`).
+            * Cell to trigger processing for all valid runs.
+            * Cell to generate and save the overall summary output (Step 4.4).
+        * **Output:** Structured notebook executing the core workflow. `all_runs_data` dictionary populated.
+        * **Testing:** Run the notebook cells sequentially. Verify data is loaded, processed, and intermediate results look correct. Check for errors.
+
+    2.  [ ] **Step 5.2: Implement Interactive Run Selection**
+        * **Goal:** Allow the user to select a run for detailed analysis using widgets.
+        * **Module/File:** `omdl_basecaller_comparison.ipynb`.
+        * **Implementation:**
+            * Use `ipywidgets.Dropdown` populated with naturally sorted, valid run IDs from `all_runs_data.keys()`.
+            * Define an observer function (`on_run_selected`) that updates a global variable (`selected_run_id`) and triggers the display/analysis functions for that run.
+            * Display the dropdown.
+        * **Output:** Interactive dropdown widget.
+        * **Testing:** Select different runs, ensure the selection updates correctly.
+
+    3.  [ ] **Step 5.3: Implement Visualization Functions (Wrapper)**
+        * **Goal:** Create reusable plotting functions, potentially wrapping existing ones.
+        * **Module/File:** `data_functions.py` (preferred for reusability) or notebook.
+        * **Implementation:**
+            * Adapt/reuse `create_metric_comparison_plot` (scatter)and `create_histogram_plot`. Ensure they handle potentially non-normal data appropriately (e.g., consider log scales if needed).
+            * Adapt/reuse `create_combined_analysis_plots` (scatter + histogram). Ensure difference plots clearly label axes (Dorado - Guppy).
+            * Consider creating specific functions for:
+                * Plotting consensus count distributions (bar chart or histogram).
+                * Plotting sequence identity distribution (histogram).
+        * **Output:** Reusable plotting functions.
+        * **Testing:** Call functions with sample data, check plot appearance and labels.
+
+    4.  [ ] **Step 5.4: Display Run-Specific Analysis and Visualizations**
+        * **Goal:** In the notebook, display tables, statistics, and plots for the selected run.
+        * **Module/File:** `omdl_basecaller_comparison.ipynb`.
+        * **Inputs:** `selected_run_id`, `all_runs_data`.
+        * **Implementation:**
+            * Create functions (e.g., `display_run_analysis(run_id, run_data)`) that are called by the run selection observer.
+            * Inside these functions:
+                * Retrieve the relevant `run_comparison_df` and stats dict.
+                * Display summary statistics (median differences, p-values) using Markdown.
+                * Call plotting functions (Step 5.3) to show:
+                    * Consensus count comparison.
+                    * RiC comparison (scatter + diff histogram).
+                    * Length comparison (scatter + diff histogram).
+                    * GC comparison (scatter + diff histogram).
+                    * Identity distribution (histogram).
+                    * Homopolymer/Ambiguity comparisons (histograms or boxplots of differences).
+                * Display tables of unmatched sequences or samples with multiple matches.
+        * **Output:** Interactive display updating based on selected run.
+        * **Testing:** Select different runs, verify that the displayed statistics and plots update correctly and match the underlying data.
+
+    5.  [ ] **Step 5.5: Implement Interactive Alignment Viewer**
+        * **Goal:** Allow users to view pairwise alignments of matched sequences interactively.
+        * **Module/File:** `data_functions.py` (for `create_alignment_display`) and `omdl_basecaller_comparison.ipynb` (for widgets).
+        * **Implementation:**
+            * Refine `create_alignment_display(seq1, seq2, window_size)`: Ensure it uses the `aligned_seq1`, `aligned_seq2` strings from the `align_sequences` output (Step 2.2). Improve robustness and error handling. Keep the color highlighting logic.
+            * In the notebook, create `create_sequence_alignment_viewer(run_df, run_data)`:
+                * Use `ipywidgets.Dropdown` to select a Sample ID from the `run_comparison_df`.
+                * Add button to trigger alignment display.
+                * On button click, retrieve the correct Dorado/Guppy sequences from `all_runs_data` based on the selected Sample ID and headers in `run_df`. Call `create_alignment_display`.
+                * Display widgets and output area.
+        * **Output:** Interactive alignment viewer section in the notebook.
+        * **Testing:** Select different samples, view alignments, test window size, check display for correctness and error handling.
+
+**Phase 6: Refinement and Documentation**
+
+* **Goal:** Finalize code, add documentation, and clean up.
+* **Rationale:** Ensures usability, maintainability, and reproducibility.
+
+    1.  [ ] **Step 6.1: Code Review and Refactoring**
+        * Review all functions in `data_functions.py` and cells in the notebook for clarity, efficiency, and adherence to good practices.
+        * Ensure consistency in naming and style. Refactor complex functions if needed.
+    2.  [ ] **Step 6.2: Add Docstrings and Comments**
+        * Add comprehensive docstrings to all functions in `data_functions.py` explaining purpose, arguments, return values, and any exceptions.
+        * Add comments to complex code sections in both files.
+        * Ensure Markdown cells in the notebook clearly explain each step of the analysis.
+    3.  [ ] **Step 6.3: Finalize `README.md`**
+        * Update `README.md` to accurately reflect the project's purpose, usage (how to install requirements, run the notebook), structure, and outputs.
+    4.  [ ] **Step 6.4: Testing Across Multiple Runs**
+        * Run the entire notebook analysis using the real dataset (multiple OMDL runs) to ensure robustness and check performance. Debug any issues arising from larger/diverse data.
+
+
+================================================
+File: .dev.outline.md
+================================================
+## Overview
+This project is used to compare the sequencing data results of the same source nanopore data processed through either Dorado or Guppy basecaller; providing insights into the differences and similarities between the two datasets. Both basecallers started with the same raw source data for each respective dataset, and therefore the end results are compared to assess the expected improvements of the Dorado basecaller. All necessary data for comparison is contained in the respective fasta DNA sequence files (in `./seqs/`) and run summary txt files (in `./summary/`). The naming convention for the files includes a unique identifier for each dataset (`OMDL{number}`, AKA the "run"), followed by the basecaller used to produce the data (`_dorado` or `_guppy`). The analysis goals are open ended to start. The main objective is to compare performance of the different data pipelines used to produce each run's data set, but the anticipated differences are not fully known. 
+
+For background context, here is an explanation of how these datasets were produced. Use this context to consider the most appropriate way to statistically compare the data.
+1. These data sets are fungal ITS sequences generated from hundreds of samples that were multiplexed in individual DNA barcoding runs (`OMDL{number}`) on a MinION nanopore sequencer (long reads, expected to be 500-700nt, but is variable depending on species). The raw signal data from the nanopore sequencer is first "basecalled" to nucleotides by either the older software, Guppy, or the new software, Dorado. Each base gets a confidence score (Q-score) quantitatively measuring the expected error rate at that position. This is the first major difference in datasets. The SAME raw signal data can be re-processed with new basecaller updates to potentially gain much better quality without any lab re-work. This is the premise of this analysis project.
+2. The bulk basecalled read data for each run is then "demultiplexed" in software based on finding dual-end index tags that offer unique tag combinations per sample. Demultiplexing sorts the bulk raw reads into respective sample buckets based on the matching index tag combination found on either end of the raw read. Each resulting sample bucket undergoes sequence clustering by k-mer similarity, then fine alignment to produce final consensus sequence(s) for a given specimen in the run. The number of aligned sequences used to produce a consensus is refered to as "Reads in Consensus" (AKA, "RiC" or more commonly sequencing "depth" or "coverage"). Higher RiC consensus sequences tend to produce better results by correcting per-position base errors, etc. 
+3. These demultiplexing, clustering, and consensus algorithms are not perfect and the starting data is also far from ideal. There's often many erroneous raw reads included in the dataset that must be filtered out during data processing; most notably chimera sequences, and other mis-primed amplicons like primer-dimers. If the clustering and consensus algorithms mistakenly include a chimeric read, it can significantly skew the final consensus sequence. A bad index tag match could mistakenly demultiplex a read into the wrong sample bucket (AKA "cross-talk"). These factors should be considered when designing the statistical analysis.
+4. Note that the specimens are not pure isolates. Therefore, latent contamination is expected and off-target ITS sequences may be produced (eg, yeast spores contaminating the mushroom tissue that was sequenced). It's also possible there may be two desired target sequences for a single specimen (eg, a parasitic fungi on a mushroom, like the common Lobster mushroom). Therefore most cases should ideally produce a single target consensus sequence with a high RiC (indicating clean, high quality/confidence results), but there are edge cases to be considered. There is also known to be intra-specific ITS gene variation in fungi. That is, a single fungal genome has MANY copies of the ITS gene, and the copies across the whole genome may have slightly variations (SNPs, indels, etc. AKA "haplotypes"). There's also slight variation between ITS sequences of the same species to be expected; this is a crucial point when considering taxonomic classification of a given ITS sequence.
+5. Generally speaking, the best results have close to 1:1 ratio of consensus sequences per sample, high RiC, and accurate consensus nucleotide calls across the sequence. The latter could be empirically determined by aligning the consensus sequence to a known reference sequence, but reference sequences are not available for all samples. Therefore, we will be comparing the paired data sets using whatever metrics we can confidently choose for statistical analysis. 
+
+This project has been implemented as an interactive Jupyter notebook (`analysis_interface.ipynb`) that leverages the functionality in the `data_functions.py` modules to provide interactive data exploration, visualization, and analysis. Special consideration should be given to modularity of the overall codebase, with the Jupyter notebook being the primary user interface, and the `data_functions` doing most (if not all) of the backend work.
+
+### Background Context Summary
+1.  **Data Source:** Multiplexed fungal ITS amplicon sequences from MinION runs.
+2.  **Basecalling:** Raw signal data processed by both Guppy and Dorado.
+3.  **Processing:** Demultiplexing, clustering, and consensus sequence generation lead to FASTA files (`./seqs/`) and summary tables (`./summary/`). "Reads in Consensus" (RiC) indicates sequence depth.
+4.  **Challenges:** Potential issues include chimeras, cross-talk, contamination, multiple valid biological sequences (haplotypes, co-infections), and intra-specific variation.
+5.  **Ideal Outcome:** Generally 1:1 consensus per sample, high RiC, accurate sequence. Direct accuracy check via references is deferred for now.
+
+## Directory Structure
+The data is organized into several directories: `seqs` for the sequence files, `summary` for the summary files, and `results` for output data generated by this program. The sequence files are in FASTA format and contain all consensus sequences generated for samples in that run. The corresponding summary files are in a tab-separated values (TSV) format but labeled as text files. These summary files contain a simple table of the list of consensus sequences and their respective length, coverage (aka "Reads in Consensus"), 
+```plaintext
+.
+â”œâ”€â”€ data_functions.py
+â”œâ”€â”€ analysis_interface.ipynb
+â”œâ”€â”€ outline.md (this file)
+â”œâ”€â”€ requirements.txt
+â”œâ”€â”€ results/
+â”‚   â””â”€â”€ ... (analysis output files)
+â”œâ”€â”€ seqs/
+â”‚   â”œâ”€â”€ OMDL*_seqs_dorado.fasta
+â”‚   â””â”€â”€ OMDL*_seqs_guppy.fasta ...
+â””â”€â”€ summary/
+    â”œâ”€â”€ OMDL*_summary_dorado.txt
+    â””â”€â”€ OMDL*_summary_guppy.txt ...
+```
+
+### File Descriptions
+- `data_functions.py`: Python module containing functions for loading, analyzing, and comparing sequence data.
+- `analysis_interface.ipynb`: Jupyter notebook for interactive analysis and visualization of the comparison results.
+- `outline.md`: This file, which outlines the project structure and methodology.
+- `results/`: Directory where the output files (TSV data) are saved after running the analysis.
+- `seqs/`: Directory containing sequence files in FASTA format.
+- `summary/`: Directory containing summary files for each sequence dataset.
+
+## Data Format Specifications
+### Sequence Files
+- `seqs/`: Directory containing sequence files in FASTA format.
+- Filenames:`OMDL{number}_seqs_{source}.fasta`: FASTA files containing all sequences for the run.
+    - `OMDL{number}`: Unique identifier for the run's dataset.
+    - `{source}`: Basecaller source of the sequence data ('dorado' or 'guppy').
+- The `seqs` files provide all the sequence data for the run, including info in the the sequence headers, formatted as follows:
+    - `>ONT{plate_num}.{well_position}-{sampleID}-iNat{iNat_num}-{replicate_number} ric={ric_value}`
+        - `ONT{plate_num}`: 96-well plate number within a run (e.g., 01), up to 10 plates per run.
+        - `{well_position}`: 96-well plate position (e.g., A02), relative to each plate, repeated for different samples on up to 10 plates per run (not entirely unique).
+        - `{sampleID}`: Unique sample ID (e.g., OMDL00009).
+        - `iNat{iNat_num}`: Sample ID (e.g., iNat169115711). (iNat = iNaturalist; unique identifier for the sample, may be repeated if a sample is sequenced multiple times in a run).
+        - `{replicate_number}`: Replicate number (e.g., 1). If multiple consensus sequences are generated from the same sample, they will be numbered sequentially (e.g., 1, 2, 3...).
+        - `ric={ric_value}`: "reads in consensus" value. AKA sequencing depth/coverage (e.g., 388).
+- Example contents:
+```plaintext
+>ONT01.09-A02-OMDL00009-iNat169115711-1 ric=388
+GTAAAAGTCGTAACAAGGTTTCCGTAGGTGAAC...CTCAAATCAGGTAGGATTACCCGCTGAACTTAAGATAA
+>ONT01.10-B02-OMDL00010-iNat167175587-1 ric=113
+TGAAAAGTCGTAA...CTCAAATCAGGTAGGATTACCCGCTGAACTTAAGA
+[remaining sequence records in fasta format...]
+```
+
+### Summary Files
+**NOTE**: It was determined that these summary files are redundant and not strictly necessary. All information is either included in the sequences (name, length, RiC, multiple #), or can easily be calculated (total seqquences, total consensus seqs, total reads)
+- `summary/`: Directory containing summary files for each run's dataset.
+- Filenames: `OMDL{number}_summary_{source}.txt`: TSV (labeled as txt) files containing brief metrics for all sequences in run's dataset.
+    - `OMDL{number}`: Unique identifier for the run's dataset.
+    - `{source}`: Basecaller source of the summary data ('dorado' or 'guppy').
+- The summary metrics include:
+    - (column 1) `Filename`: Name of the sequence file.
+    - (column 2) `Length`: Length of the sequence.
+    - (column 3) `Reads in Consensus`: Number of reads in the consensus sequence (i.e., "RiC" or depth/coverage).
+    - (column 4) `Multiple`: Indicates {replicate_num} of the sequence (1 = first, 2 = second, etc.) if multiple consensus sequences were generated from the same sample.
+    - Appended lines at end of file:
+        - `Total Unique Samples`: Total number of unique samples in the dataset.
+        - `Total Consensus Sequences`: Total number of consensus sequences in the dataset.
+        - `Total Reads in Consensus Sequences`: Total number of reads in all consensus sequences in the dataset.
+- Example contents:
+```plaintext
+Filename	Length	Reads in Consensus	Multiple
+ONT01.09-A02-OMDL00009-iNat169115711-1	665	388	1
+ONT01.10-B02-OMDL00010-iNat167175587-1	662	113	1
+[complete list of sequences...]
+ONT05.95-G12-OMDL00479-iNat164356544-1	626	34	1
+
+Total Unique Samples	152
+Total Consensus Sequences	155
+Total Reads in Consensus Sequences	20717
+```
+## Interactive Notebook Structure
+The Jupyter notebook provides an interactive environment for comparative analysis:
+
+1.  **Setup and Data Loading:**
+    * Import libraries (pandas, numpy, Biopython, scipy.stats, plotting libraries, ipywidgets, natsort).
+    * Define constants and paths using `data_functions.py`.
+    * Discover runs with paired Dorado/Guppy data using `data_functions.discover_runs`.
+    * Load sequence and summary data for valid runs using `data_functions.load_sequences` and `data_functions.load_summary`.
+2.  **Sequence Matching and Initial Comparison:**
+    * Match sequences between Dorado and Guppy datasets for each sample using `data_functions.match_sequences`. This handles one-to-one, one-to-many, and many-to-many scenarios.
+    * Generate run-specific and overall summary dataframes containing key metrics for matched and unmatched sequences.
+    * Display overall summary statistics comparing Dorado and Guppy across all runs (e.g., number of samples, sequences, matches, unique sequences).
+3.  **Run-Specific Detailed Analysis (Interactive):**
+    * Use `ipywidgets` for selecting a specific run (`OMDL{number}`).
+    * **Consensus Sequence Count Analysis:** Compare the *number* of consensus sequences generated per sample between Dorado and Guppy. Visualize distributions and test for significant differences (e.g., using Wilcoxon signed-rank test on counts per sample).
+    * **Matched Pair Analysis:**
+        * **RiC Comparison:** Visualize Dorado vs. Guppy RiC for matched pairs (scatter plot, histogram of differences). Perform non-parametric paired tests (e.g., Wilcoxon signed-rank test) on RiC values.
+        * **Sequence Length Comparison:** Similar visualization and non-parametric testing for sequence lengths.
+        * **GC Content Comparison:** Similar visualization and non-parametric testing for GC content.
+        * **Sequence Identity Analysis:** Analyze distribution of percentage identity for matched pairs. Examine mismatches, insertions, deletions. Interactively explore alignments using `data_functions.create_alignment_display`.
+    * **Unmatched Sequence Analysis:** Characterize sequences unique to either Dorado or Guppy for each sample (e.g., their RiC, length distribution).
+    * **Multiple Match Analysis:** Interactively explore samples where the matching algorithm found multiple potential pairings, showing sequence characteristics and similarity matrices.
+    * **Taxonomic Relevance Metric Comparison:**
+        * **Homopolymer Analysis:** Compare lengths of homopolymer runs (e.g., >=5 bases) in matched sequences between Dorado and Guppy.
+        * **Ambiguity Analysis:** Compare the count/frequency of ambiguous bases ('N') in matched sequences.
+4.  **Comprehensive Analysis and Interpretation:**
+    * Provide summary interpretations based on the statistical tests and visualizations across all metrics for the selected run.
+    * Offer functionality to aggregate key findings across all processed runs.
+5.  **Export and Reporting:**
+    * Export detailed run-specific and overall comparison data to TSV/CSV (and potentially Excel) formats. Ensure exported tables include relevant metrics (e.g., number of consensus per sample).
+    * Allow exporting generated plots (PNG, SVG).
+    * (Lower Priority) Note on PDF reporting: Advise users on manual export via Jupyter or using `nbconvert` via command line, rather than implementing complex automated PDF generation within the notebook.
+
+### Key Analysis Metrics
+The analysis focuses on the following key metrics to assess differences between Dorado and Guppy basecallers:
+1.  **Consensus Sequence Count per Sample:** Distribution and comparison of the number of sequences generated per sample (Dorado vs. Guppy).
+2.  **Matched Sequence Characteristics (Paired Comparison):**
+    * RiC (Reads in Consensus): Depth of coverage.
+    * Sequence Length.
+    * GC Content.
+    * Sequence Identity (%): Including mismatches, insertions, deletions from pairwise alignments.
+3.  **Sequence Quality/Taxonomic Relevance Metrics:**
+    * Homopolymer run lengths.
+    * Frequency of ambiguous bases ('N').
+4.  **Unmatched Sequences:** Characterization of sequences found only in Dorado or Guppy datasets for a given sample.
+
+### Statistical Methods
+
+* Utilize non-parametric tests appropriate for paired data where normality cannot be assumed (e.g., **Wilcoxon signed-rank test**) for comparing RiC, length, GC content, homopolymer counts, and ambiguity counts between matched Dorado and Guppy sequences.
+* Employ methods to compare distributions where relevant (e.g., histograms, potentially Kolmogorov-Smirnov test for sequence counts per sample).
+* Significance level (alpha) typically set at 0.05.
+
+## Output Files
+The analysis produces the following output files in the `results` directory:
+
+
+1.  **Run-Specific TSV/CSV (`OMDL{number}_comparison_data.tsv`):**
+    * Includes columns for Sample\_ID, Dorado/Guppy Headers, RiC, Length, GC Content (calculated via Biopython), differences, and alignment metrics (Identity %, Mismatches, Insertions, Deletions) for *matched pairs*.
+    * Potentially add columns for homopolymer stats and ambiguity counts per sequence.
+2.  **Overall Summary TSV/CSV (`overall_comparison_summary.tsv`):**
+    * Includes Run\_ID, counts of unique samples, total consensus sequences (Dorado/Guppy), matched sequences, Dorado-only sequences, Guppy-only sequences.
+    * Aggregate statistics (e.g., median differences, p-values from non-parametric tests) for RiC, Length, GC Content across runs.
+    * Aggregate statistics on the number of consensus sequences per sample.
+3.  **Visualizations:** Saved plots (e.g., PNG) from the notebook analysis.
+
+### Dependencies
+
+* Python 3.x
+* **Biopython:** Core dependency for sequence parsing, alignment, GC calculation, etc..
+* **Pandas:** Data manipulation and table generation.
+* **NumPy:** Numerical operations.
+* **SciPy (scipy.stats):** Statistical testing (non-parametric tests).
+* **Matplotlib & Seaborn / Plotly:** Data visualization.
+* **ipywidgets & IPython:** Interactive notebook elements.
+* **natsort:** Natural sorting of run IDs.
+* (Optional for Excel export): `openpyxl` or `xlsxwriter`.
+* (Optional, if MSA is retained): External tool like MUSCLE, accessible in system PATH.
+
+
+
+
+
