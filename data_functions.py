@@ -173,7 +173,7 @@ def load_sequences(run_id: str, basecaller: str, seqs_dir: str) -> Optional[Dict
     # Return the dictionary (convert defaultdict to dict if preferred, though not necessary)
     return dict(sequences_by_sample)
 
-def calculate_kmer_similarity(seq1: str, seq2: str, k: int = 5) -> float:
+def calculate_kmer_similarity(seq1: str, seq2: str, k: int = 7) -> float:
     """
     Calculate similarity between two sequences based on shared k-mers.
     Uses counts of k-mers to provide a similarity score.
@@ -499,6 +499,251 @@ def _assign_matches(
                 used_dorado_indices.add(d_idx)
     return assigned_matched_pairs, used_dorado_indices, used_guppy_indices
 
+def _filter_potential_matches(
+    aligned_pairs: List[Tuple[int, int, Dict[str, Any]]],
+    threshold: float
+) -> List[Tuple[int, int, Dict[str, Any]]]:
+    """
+    Filters a list of aligned sequence pairs based on alignment identity.
+
+    Args:
+        aligned_pairs: A list of tuples, where each tuple represents an aligned pair:
+                       (dorado_index, guppy_index, alignment_results_dict).
+                       The alignment_results_dict must contain an 'identity' key.
+        threshold: The minimum alignment identity percentage required to keep a pair.
+
+    Returns:
+        A new list containing only the tuples from aligned_pairs where the
+        alignment identity meets or exceeds the threshold.
+    """
+    potential_matches = []
+    for d_idx, g_idx, align_res in aligned_pairs:
+        # Ensure alignment results exist and contain identity
+        if align_res and 'identity' in align_res:
+            if align_res['identity'] >= threshold:
+                potential_matches.append((d_idx, g_idx, align_res))
+        # Optional: Add a warning if align_res is missing or lacks 'identity'
+        # else:
+        #     print(f"Warning: Alignment result missing or lacks 'identity' for pair ({d_idx}, {g_idx}). Skipping.")
+
+    return potential_matches
+
+def _determine_best_hits(
+    potential_matches: List[Tuple[int, int, Dict[str, Any]]],
+    dorado_records: List[Dict[str, Any]],
+    guppy_records: List[Dict[str, Any]]
+) -> Tuple[Dict[int, Tuple[int, float, float]], Dict[int, Tuple[int, float, float]]]:
+    """
+    Determines the single best hit for each sequence based on alignment score and RiC tie-breaking.
+
+    Args:
+        potential_matches: A list of tuples (d_idx, g_idx, alignment_results)
+                           representing pairs meeting the identity threshold.
+        dorado_records: The list of all Dorado sequence dictionaries for the sample.
+        guppy_records: The list of all Guppy sequence dictionaries for the sample.
+
+    Returns:
+        A tuple containing two dictionaries:
+        - best_guppy_for_dorado: Maps d_idx to its best hit (g_idx, score, identity).
+        - best_dorado_for_guppy: Maps g_idx to its best hit (d_idx, score, identity).
+    """
+    best_guppy_for_dorado: Dict[int, Tuple[int, float, float]] = {}
+    best_dorado_for_guppy: Dict[int, Tuple[int, float, float]] = {}
+
+    # --- Group potential matches by Dorado index ---
+    grouped_by_dorado = defaultdict(list)
+    for d_idx, g_idx, align_res in potential_matches:
+        grouped_by_dorado[d_idx].append({'g_idx': g_idx, 'score': align_res['score'], 'identity': align_res['identity']})
+
+    # --- Find best Guppy hit for each Dorado sequence ---
+    for d_idx, matches in grouped_by_dorado.items():
+        if not matches: continue
+
+        # Sort matches: primary key = score (desc), secondary key = Guppy RiC (desc)
+        matches.sort(
+            key=lambda m: (m['score'], guppy_records[m['g_idx']].get('ric', -1)),
+            reverse=True
+        )
+        best_match = matches[0]
+        best_guppy_for_dorado[d_idx] = (best_match['g_idx'], best_match['score'], best_match['identity'])
+
+    # --- Group potential matches by Guppy index ---
+    grouped_by_guppy = defaultdict(list)
+    for d_idx, g_idx, align_res in potential_matches:
+        grouped_by_guppy[g_idx].append({'d_idx': d_idx, 'score': align_res['score'], 'identity': align_res['identity']})
+
+    # --- Find best Dorado hit for each Guppy sequence ---
+    for g_idx, matches in grouped_by_guppy.items():
+        if not matches: continue
+
+        # Sort matches: primary key = score (desc), secondary key = Dorado RiC (desc)
+        matches.sort(
+            key=lambda m: (m['score'], dorado_records[m['d_idx']].get('ric', -1)),
+            reverse=True
+        )
+        best_match = matches[0]
+        best_dorado_for_guppy[g_idx] = (best_match['d_idx'], best_match['score'], best_match['identity'])
+
+    return best_guppy_for_dorado, best_dorado_for_guppy
+# Place this function definition within data_functions.py
+# Near _determine_best_hits
+
+def _get_alternative_match_info(
+    target_idx: int,
+    target_type: str, # 'dorado' or 'guppy'
+    primary_partner_idx: int,
+    potential_matches: List[Tuple[int, int, Dict[str, Any]]],
+    dorado_records: List[Dict[str, Any]],
+    guppy_records: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Helper to collect basic info about alternative matches for a given sequence."""
+    alternatives = []
+    for d_idx, g_idx, align_res in potential_matches:
+        if target_type == 'dorado' and d_idx == target_idx and g_idx != primary_partner_idx:
+            # Alternative Guppy match for the target Dorado sequence
+            record = guppy_records[g_idx]
+            alternatives.append({
+                'type': 'guppy',
+                'header': record.get('header'),
+                'ric': record.get('ric'),
+                'identity': align_res.get('identity'),
+                'score': align_res.get('score')
+            })
+        elif target_type == 'guppy' and g_idx == target_idx and d_idx != primary_partner_idx:
+            # Alternative Dorado match for the target Guppy sequence
+            record = dorado_records[d_idx]
+            alternatives.append({
+                'type': 'dorado',
+                'header': record.get('header'),
+                'ric': record.get('ric'),
+                'identity': align_res.get('identity'),
+                'score': align_res.get('score')
+            })
+    return alternatives
+
+def _assign_primary_matches(
+    potential_matches: List[Tuple[int, int, Dict[str, Any]]],
+    best_guppy_for_dorado: Dict[int, Tuple[int, float, float]],
+    best_dorado_for_guppy: Dict[int, Tuple[int, float, float]],
+    dorado_records: List[Dict[str, Any]],
+    guppy_records: List[Dict[str, Any]],
+    sample_id: str
+) -> Tuple[List[Dict[str, Any]], Set[int], Set[int]]:
+    """
+    Assigns primary matches using Reciprocal Best Hit (RBH) logic and collects alternatives.
+
+    Args:
+        potential_matches: Filtered list of (d_idx, g_idx, align_res) tuples.
+        best_guppy_for_dorado: Mapping from d_idx to its best Guppy hit (g_idx, score, identity).
+        best_dorado_for_guppy: Mapping from g_idx to its best Dorado hit (d_idx, score, identity).
+        dorado_records: List of all Dorado records for the sample.
+        guppy_records: List of all Guppy records for the sample.
+        sample_id: The current sample identifier.
+
+    Returns:
+        A tuple containing:
+        - final_matched_pairs: List of dictionaries for primary matches, including alternatives.
+        - assigned_dorado_indices: Set of indices for assigned Dorado records.
+        - assigned_guppy_indices: Set of indices for assigned Guppy records.
+    """
+    final_matched_pairs: List[Dict[str, Any]] = []
+    assigned_dorado_indices: Set[int] = set()
+    assigned_guppy_indices: Set[int] = set()
+
+    # Create a quick lookup for alignment results: {(d_idx, g_idx): align_res}
+    align_res_lookup = {(d, g): res for d, g, res in potential_matches}
+
+    # --- Pass 1: Assign True Reciprocal Best Hits (RBH) ---
+    print(f"  Assigning RBH matches for sample {sample_id}...")
+    rbh_pairs_found = 0
+    # Sort by dorado index for consistent processing order (optional but good practice)
+    sorted_dorado_indices = sorted(best_guppy_for_dorado.keys())
+
+    for d_idx in sorted_dorado_indices:
+        if d_idx in assigned_dorado_indices:
+            continue # Already assigned in this pass
+
+        best_g_info = best_guppy_for_dorado.get(d_idx)
+        if not best_g_info: continue # Should not happen if potential_matches existed for d_idx
+        g_idx = best_g_info[0]
+
+        if g_idx in assigned_guppy_indices:
+            continue # Partner already assigned
+
+        best_d_info_for_g = best_dorado_for_guppy.get(g_idx)
+        if best_d_info_for_g and best_d_info_for_g[0] == d_idx:
+            # Found a true RBH pair!
+            rbh_pairs_found += 1
+            align_res = align_res_lookup.get((d_idx, g_idx))
+            if not align_res: continue # Should exist
+
+            # Collect alternatives
+            alternative_matches = _get_alternative_match_info(
+                d_idx, 'dorado', g_idx, potential_matches, dorado_records, guppy_records
+            )
+            alternative_matches.extend(
+                 _get_alternative_match_info(
+                    g_idx, 'guppy', d_idx, potential_matches, dorado_records, guppy_records
+                )
+            )
+
+            final_matched_pairs.append({
+                'sample_id': sample_id,
+                'dorado': dorado_records[d_idx],
+                'guppy': guppy_records[g_idx],
+                'alignment': align_res,
+                'match_type': 'RBH',
+                'alternative_matches': alternative_matches # Store the list of alternatives
+            })
+            assigned_dorado_indices.add(d_idx)
+            assigned_guppy_indices.add(g_idx)
+
+    print(f"    Found {rbh_pairs_found} RBH pairs.")
+
+    # --- Pass 2: Assign Remaining Best Hits (Sorted by Score) ---
+    print(f"  Assigning remaining best hits for sample {sample_id}...")
+    remaining_hits = []
+    for d_idx, (g_idx, score, identity) in best_guppy_for_dorado.items():
+        if d_idx not in assigned_dorado_indices and g_idx not in assigned_guppy_indices:
+            remaining_hits.append({'d_idx': d_idx, 'g_idx': g_idx, 'score': score})
+
+    # Sort remaining potential best hits by score (desc)
+    remaining_hits.sort(key=lambda x: x['score'], reverse=True)
+
+    non_rbh_pairs_found = 0
+    for hit in remaining_hits:
+        d_idx = hit['d_idx']
+        g_idx = hit['g_idx']
+
+        # Check again if either has been assigned by a higher-scoring pair in this pass
+        if d_idx not in assigned_dorado_indices and g_idx not in assigned_guppy_indices:
+            non_rbh_pairs_found += 1
+            align_res = align_res_lookup.get((d_idx, g_idx))
+            if not align_res: continue # Should exist
+
+            # Collect alternatives
+            alternative_matches = _get_alternative_match_info(
+                d_idx, 'dorado', g_idx, potential_matches, dorado_records, guppy_records
+            )
+            alternative_matches.extend(
+                 _get_alternative_match_info(
+                    g_idx, 'guppy', d_idx, potential_matches, dorado_records, guppy_records
+                )
+            )
+
+            final_matched_pairs.append({
+                'sample_id': sample_id,
+                'dorado': dorado_records[d_idx],
+                'guppy': guppy_records[g_idx],
+                'alignment': align_res,
+                'match_type': 'Best_Hit', # Indicate it wasn't a strict RBH
+                'alternative_matches': alternative_matches
+            })
+            assigned_dorado_indices.add(d_idx)
+            assigned_guppy_indices.add(g_idx)
+    print(f"    Assigned {non_rbh_pairs_found} additional non-RBH best-hit pairs.")
+
+    return final_matched_pairs, assigned_dorado_indices, assigned_guppy_indices
 
 def match_sequences(
     dorado_seqs: Dict[str, List[Dict[str, Any]]],
@@ -506,36 +751,30 @@ def match_sequences(
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
     Matches sequences between Dorado and Guppy datasets for each sample,
-    using k-mer similarity and pairwise alignment.
+    using Reciprocal Best Hit (RBH) logic after identity filtering.
 
     Args:
         dorado_seqs: Dictionary mapping sample IDs to lists of Dorado sequence records.
-                     (Output of load_sequences).
         guppy_seqs: Dictionary mapping sample IDs to lists of Guppy sequence records.
-                    (Output of load_sequences).
 
     Returns:
         A tuple containing three lists:
-        - matched_pairs: List of dictionaries, each representing a matched pair.
-                         Includes sample_id, dorado record, guppy record, alignment results,
-                         multiple_matches flag, and match_confidence.
-        - dorado_only: List of dictionaries for Dorado sequences with no match found.
-                       Includes sample_id and the dorado record.
-        - guppy_only: List of dictionaries for Guppy sequences with no match found.
-                      Includes sample_id and the guppy record.
+        - matched_pairs: List of dictionaries, each representing a primary matched pair,
+                         potentially including alternative matches.
+        - dorado_only: List of dictionaries for Dorado sequences with no primary match.
+        - guppy_only: List of dictionaries for Guppy sequences with no primary match.
     """
-    matched_pairs = []
-    dorado_only = []
-    guppy_only = []
+    # --- Overall lists to store results across all samples ---
+    matched_pairs_overall: List[Dict[str, Any]] = []
+    dorado_only_overall: List[Dict[str, Any]] = []
+    guppy_only_overall: List[Dict[str, Any]] = []
 
-    # --- !!! CHANGE K-mer SCORING HERE !!! ---
     # --- Configuration Thresholds ---
-    KMER_SIMILARITY_THRESHOLD = 50.0  # Min k-mer similarity (%) for considering alignment
-    LENGTH_RATIO_THRESHOLD = 0.5     # Min length ratio (shorter/longer) to consider match
-    HIGH_IDENTITY_THRESHOLD = 95.0    # Identity (%) for high-confidence 1:1 match
-    MULTIPLE_MATCH_IDENTITY_DIFF = 5.0 # Max identity % difference for considering ambiguous matches
+    KMER_SIMILARITY_THRESHOLD = 50.0  # Min k-mer similarity (%) for pre-filtering
+    LENGTH_RATIO_THRESHOLD = 0.5     # Min length ratio (shorter/longer) for pre-filtering
+    POTENTIAL_MATCH_IDENTITY_THRESHOLD = 90.0 # Min alignment identity (%) to be considered a potential match for RBH analysis
     # Maximum number of alignments to perform per sample in complex cases to limit computation
-    MAX_ALIGNMENTS_PER_SAMPLE = 20
+    MAX_ALIGNMENTS_PER_SAMPLE = 20 # Keep this limit for the pre-alignment step
 
     # Get sets of sample IDs present in each dataset
     dorado_sample_ids = set(dorado_seqs.keys())
@@ -549,94 +788,96 @@ def match_sequences(
     print(f"Processing {len(common_samples)} samples common to both Dorado and Guppy...")
 
     # --- Process Common Samples ---
-    for sample_id in common_samples:
+    for sample_id in natsorted(list(common_samples)): # Use natsorted for consistent order
+        print(f"\n-- Starting matching for Sample ID: {sample_id} --")
         dorado_records = dorado_seqs[sample_id]
         guppy_records = guppy_seqs[sample_id]
         num_dorado = len(dorado_records)
         num_guppy = len(guppy_records)
 
-        # Keep track of used sequence indices within this sample
-        used_dorado_indices = set()
-        used_guppy_indices = set()
+        # --- Indices assigned within THIS sample ---
+        sample_assigned_dorado_indices: Set[int] = set()
+        sample_assigned_guppy_indices: Set[int] = set()
+        sample_matched_pairs: List[Dict[str, Any]] = [] # Matches found for THIS sample
 
-        # === Case 1: Simple 1-to-1 Match ===
-        if num_dorado == 1 and num_guppy == 1:
-            d_record = dorado_records[0]
-            g_record = guppy_records[0]
-            alignment_results = align_sequences(d_record['sequence'], g_record['sequence']) # Step 2.2
-            MIN_IDENTITY_THRESHOLD_1_TO_1 = 70.0 # Example threshold, adjust if needed
-            if alignment_results and alignment_results['identity'] >= MIN_IDENTITY_THRESHOLD_1_TO_1:
-                matched_pairs.append({
-                    'sample_id': sample_id,
-                    'dorado': d_record,
-                    'guppy': g_record,
-                    'alignment': alignment_results,
-                    'multiple_matches': False,
-                    'match_confidence': 'high' if alignment_results['identity'] >= HIGH_IDENTITY_THRESHOLD else ('medium' if alignment_results['identity'] >= 80 else 'low')
-                })
-                used_dorado_indices.add(0)
-                used_guppy_indices.add(0)
-            else:
-                # Alignment failed, or identity too low. Treat as unmatched.
-                pass # They will be added to _only lists later
-
-        # === Case 2: Complex Match (Multiple Sequences in Dorado or Guppy or Both) ===
-        elif num_dorado > 0 and num_guppy > 0:
-            # Prefilter and align promising pairs
-            aligned_pairs, alignment_cache = _prefilter_and_align_pairs(
+        # Only proceed if there are sequences from both basecallers for this sample
+        if num_dorado > 0 and num_guppy > 0:
+            print(f"  Prefiltering and aligning {num_dorado} Dorado vs {num_guppy} Guppy...")
+            # Step 1: Prefilter based on k-mer/length and align promising pairs
+            aligned_pairs_raw, alignment_cache = _prefilter_and_align_pairs(
                 dorado_records,
                 guppy_records,
                 KMER_SIMILARITY_THRESHOLD,
                 LENGTH_RATIO_THRESHOLD,
                 MAX_ALIGNMENTS_PER_SAMPLE
             )
+            print(f"    Found {len(aligned_pairs_raw)} alignments passing pre-filter.")
 
-            if aligned_pairs:
-                sample_matched_pairs, sample_used_dorado, sample_used_guppy = _assign_matches(
-                    aligned_pairs,
-                    alignment_cache,
-                    dorado_records,
-                    guppy_records,
-                    sample_id,
-                    HIGH_IDENTITY_THRESHOLD, # Use the constants defined in match_sequences
-                    MULTIPLE_MATCH_IDENTITY_DIFF
+            if aligned_pairs_raw:
+                # Step 2: Filter aligned pairs based on minimum identity
+                potential_matches = _filter_potential_matches(
+                    aligned_pairs_raw,
+                    POTENTIAL_MATCH_IDENTITY_THRESHOLD
                 )
-                matched_pairs.extend(sample_matched_pairs) # Add results to the main list
+                print(f"    Found {len(potential_matches)} potential matches passing identity >= {POTENTIAL_MATCH_IDENTITY_THRESHOLD}%.")
 
-                # CRITICAL: Update the 'used' sets defined *within* the sample loop
-                # These sets were defined just before the 'elif' block
-                used_dorado_indices.update(sample_used_dorado)
-                used_guppy_indices.update(sample_used_guppy)
-            # The 'else' case (no aligned pairs found) requires no action here,
-            # as the used_dorado_indices/used_guppy_indices sets will remain empty
-            # for this sample, and the subsequent code will correctly handle it.
+                if potential_matches:
+                    # Step 3: Determine best hit for each sequence
+                    best_guppy_for_dorado, best_dorado_for_guppy = _determine_best_hits(
+                        potential_matches,
+                        dorado_records,
+                        guppy_records
+                    )
+                    print(f"    Determined best hits for {len(best_guppy_for_dorado)} Dorado and {len(best_dorado_for_guppy)} Guppy sequences.")
+
+                    # Step 4: Assign primary matches using RBH logic
+                    sample_matched_pairs, sample_assigned_dorado_indices, sample_assigned_guppy_indices = _assign_primary_matches(
+                        potential_matches,
+                        best_guppy_for_dorado,
+                        best_dorado_for_guppy,
+                        dorado_records,
+                        guppy_records,
+                        sample_id
+                    )
+                    print(f"    Assigned {len(sample_matched_pairs)} primary pairs for this sample.")
+                    # Add the matches found for THIS sample to the overall list
+                    matched_pairs_overall.extend(sample_matched_pairs)
+                else:
+                    print("    No potential matches passed the identity threshold.")
+            else:
+                print("    No pairs passed k-mer/length pre-filtering or alignment failed.")
+        else:
+            print("  Skipping sample - no sequences found for Dorado or Guppy.")
 
 
-        # --- Add any remaining unused sequences for this common sample to _only lists ---
+        # --- Identify Unmatched Sequences for THIS sample ---
+        # Compare all original indices against the assigned indices FOR THIS SAMPLE
         for d_idx, d_record in enumerate(dorado_records):
-            if d_idx not in used_dorado_indices:
-                dorado_only.append({'sample_id': sample_id, 'record': d_record})
+            if d_idx not in sample_assigned_dorado_indices:
+                dorado_only_overall.append({'sample_id': sample_id, 'record': d_record})
         for g_idx, g_record in enumerate(guppy_records):
-            if g_idx not in used_guppy_indices:
-                guppy_only.append({'sample_id': sample_id, 'record': g_record})
+            if g_idx not in sample_assigned_guppy_indices:
+                guppy_only_overall.append({'sample_id': sample_id, 'record': g_record})
+        print(f"-- Finished matching for Sample ID: {sample_id} --")
+
 
     # --- Add sequences from samples unique to one dataset ---
-    print(f"Processing {len(dorado_unique_samples)} samples unique to Dorado...")
+    print(f"\nProcessing {len(dorado_unique_samples)} samples unique to Dorado...")
     for sample_id in dorado_unique_samples:
         for record in dorado_seqs[sample_id]:
-            dorado_only.append({'sample_id': sample_id, 'record': record})
+            dorado_only_overall.append({'sample_id': sample_id, 'record': record})
 
     print(f"Processing {len(guppy_unique_samples)} samples unique to Guppy...")
     for sample_id in guppy_unique_samples:
         for record in guppy_seqs[sample_id]:
-            guppy_only.append({'sample_id': sample_id, 'record': record})
+            guppy_only_overall.append({'sample_id': sample_id, 'record': record})
 
-    print(f"Matching complete. Found {len(matched_pairs)} matched pairs, "
-          f"{len(dorado_only)} Dorado-only sequences, {len(guppy_only)} Guppy-only sequences.")
+    print(f"\n--- Overall Matching Complete ---")
+    print(f"  Total Primary Matched Pairs: {len(matched_pairs_overall)}")
+    print(f"  Total Dorado-Only Sequences: {len(dorado_only_overall)}")
+    print(f"  Total Guppy-Only Sequences:  {len(guppy_only_overall)}")
 
-    return matched_pairs, dorado_only, guppy_only
-
-
+    return matched_pairs_overall, dorado_only_overall, guppy_only_overall
 
 def calculate_gc_content(sequence_str: str) -> Optional[float]:
     """
@@ -748,30 +989,39 @@ def analyze_ambiguity(sequence_str: str) -> Optional[Dict[str, Any]]:
 
 def generate_comparison_dataframe(matched_pairs: List[Dict[str, Any]]) -> pd.DataFrame:
     """
-    Generates a pandas DataFrame containing consolidated metrics for matched sequence pairs.
+    Generates a pandas DataFrame containing consolidated metrics for primary matched sequence pairs,
+    including match type and alternative matches.
 
     Args:
         matched_pairs: A list of dictionaries, where each dictionary represents
-                       a matched pair from the match_sequences function.
+                       a primary matched pair from the refactored match_sequences function.
+                       Each dictionary is expected to have 'dorado', 'guppy', 'alignment',
+                       'match_type', and 'alternative_matches' keys.
 
     Returns:
-        A pandas DataFrame with columns for sample ID, headers, RiC, length, GC content,
-        alignment metrics, homopolymer stats, ambiguity stats, and differences.
+        A pandas DataFrame with columns for sample ID, headers, primary match metrics
+        (RiC, length, GC, alignment, homopolymer, ambiguity, differences),
+        Match_Type, and Alternative_Matches.
     """
     comparison_data = []
 
     if not matched_pairs:
         # Return an empty DataFrame with expected columns if no pairs are provided
         # Define expected columns structure here if needed, or return empty DF
+        print("Warning: Empty matched_pairs list provided to generate_comparison_dataframe. Returning empty DataFrame.")
+        # You might want to define expected columns for an empty DataFrame
+        # columns = ['Sample_ID', 'Dorado_Header', 'Guppy_Header', ..., 'Match_Type', 'Alternative_Matches']
+        # return pd.DataFrame(columns=columns)
         return pd.DataFrame()
 
     for pair in matched_pairs:
         row_data = {}
+        dorado_rec = pair.get('dorado', {})
+        guppy_rec = pair.get('guppy', {})
+        alignment_res = pair.get('alignment', {})
 
         # --- Basic Info ---
         row_data['Sample_ID'] = pair.get('sample_id', None)
-        dorado_rec = pair.get('dorado', {})
-        guppy_rec = pair.get('guppy', {})
         row_data['Dorado_Header'] = dorado_rec.get('header', None)
         row_data['Guppy_Header'] = guppy_rec.get('header', None)
         row_data['Dorado_RiC'] = dorado_rec.get('ric', None)
@@ -779,68 +1029,103 @@ def generate_comparison_dataframe(matched_pairs: List[Dict[str, Any]]) -> pd.Dat
         row_data['Dorado_Length'] = dorado_rec.get('length', 0) # Use 0 for calculations if missing
         row_data['Guppy_Length'] = guppy_rec.get('length', 0)
 
-        # --- Match Quality ---
-        row_data['Multiple_Matches'] = pair.get('multiple_matches', False)
-        row_data['Match_Confidence'] = pair.get('match_confidence', None)
+        # --- NEW: Match Type and Alternatives ---
+        row_data['Match_Type'] = pair.get('match_type', None) # 'RBH' or 'Best_Hit'
+        row_data['Alternative_Matches'] = pair.get('alternative_matches', []) # Store the list directly
+
+        # --- REMOVED: Obsolete Match Quality ---
+        # row_data['Multiple_Matches'] = pair.get('multiple_matches', False) # Obsolete
+        # row_data['Match_Confidence'] = pair.get('match_confidence', None) # Obsolete
 
         # --- Alignment Metrics (from pair['alignment']) ---
-        alignment_res = pair.get('alignment', {})
         row_data['Identity_Percent'] = alignment_res.get('identity', None)
         row_data['Mismatches'] = alignment_res.get('mismatches', None)
-        row_data['Insertions_vs_Guppy'] = alignment_res.get('insertions', None) # Gaps in Dorado seq
-        row_data['Deletions_vs_Guppy'] = alignment_res.get('deletions', None)   # Gaps in Guppy seq
+        row_data['Insertions_vs_Guppy'] = alignment_res.get('insertions', None) # Gaps in Dorado relative to Guppy
+        row_data['Deletions_vs_Guppy'] = alignment_res.get('deletions', None)   # Gaps in Guppy relative to Dorado
         row_data['Alignment_Length'] = alignment_res.get('alignment_length', None)
         row_data['Alignment_Score'] = alignment_res.get('score', None)
-
 
         # --- Calculated Metrics ---
         dorado_seq = dorado_rec.get('sequence', "")
         guppy_seq = guppy_rec.get('sequence', "")
 
-        # GC Content (handle None return)
+        # GC Content
         row_data['Dorado_GC'] = calculate_gc_content(dorado_seq)
         row_data['Guppy_GC'] = calculate_gc_content(guppy_seq)
 
-        # Homopolymers (store key results, handle None return)
-        dorad_homop = analyze_homopolymers(dorado_seq)
+        # Homopolymers
+        dorado_homop = analyze_homopolymers(dorado_seq) # Assuming min_len=5 default
         guppy_homop = analyze_homopolymers(guppy_seq)
-        row_data['dorad_homop_Count'] = dorad_homop['total_count'] if dorad_homop else None
-        row_data['guppy_homop_Count'] = guppy_homop['total_count'] if guppy_homop else None
-        row_data['dorad_homop_MaxLen'] = dorad_homop['max_len'] if dorad_homop else None
-        row_data['guppy_homop_MaxLen'] = guppy_homop['max_len'] if guppy_homop else None
-        # Optionally store the full dicts for debugging:
-        # row_data['dorad_homop_Details'] = dorad_homop
-        # row_data['guppy_homop_Details'] = guppy_homop
+        row_data['Dorado_Homop_Count'] = dorado_homop['total_count'] if dorado_homop else None
+        row_data['Guppy_Homop_Count'] = guppy_homop['total_count'] if guppy_homop else None
+        row_data['Dorado_Homop_MaxLen'] = dorado_homop['max_len'] if dorado_homop else None
+        row_data['Guppy_Homop_MaxLen'] = guppy_homop['max_len'] if guppy_homop else None
+        # Optionally store the full dicts if needed for deeper analysis later
+        # row_data['Dorado_Homop_Details'] = dorado_homop
+        # row_data['Guppy_Homop_Details'] = guppy_homop
 
-        # Ambiguity (store key results, handle None return)
+        # Ambiguity
         dorado_ambig = analyze_ambiguity(dorado_seq)
         guppy_ambig = analyze_ambiguity(guppy_seq)
         row_data['Dorado_Ambig_Count'] = dorado_ambig['total_count'] if dorado_ambig else None
         row_data['Guppy_Ambig_Count'] = guppy_ambig['total_count'] if guppy_ambig else None
         row_data['Dorado_Ambig_Freq'] = dorado_ambig['frequency'] if dorado_ambig else None
         row_data['Guppy_Ambig_Freq'] = guppy_ambig['frequency'] if guppy_ambig else None
-        # Optionally store the full dicts for debugging:
+        # Optionally store the full dicts
         # row_data['Dorado_Ambig_Details'] = dorado_ambig
         # row_data['Guppy_Ambig_Details'] = guppy_ambig
 
         # --- Difference Metrics (handle None values carefully) ---
-        try:
-            row_data['RiC_Difference'] = (row_data['Dorado_RiC'] - row_data['Guppy_RiC']) if row_data['Dorado_RiC'] is not None and row_data['Guppy_RiC'] is not None else None
-        except TypeError:
-            row_data['RiC_Difference'] = None
-        try:
-            row_data['Length_Difference'] = row_data['Dorado_Length'] - row_data['Guppy_Length']
-        except TypeError:
-             row_data['Length_Difference'] = None
-        try:
-            row_data['GC_Difference'] = (row_data['Dorado_GC'] - row_data['Guppy_GC']) if row_data['Dorado_GC'] is not None and row_data['Guppy_GC'] is not None else None
-        except TypeError:
-             row_data['GC_Difference'] = None
+        # RiC Difference
+        ric1, ric2 = row_data['Dorado_RiC'], row_data['Guppy_RiC']
+        row_data['RiC_Difference'] = (ric1 - ric2) if ric1 is not None and ric2 is not None else None
+
+        # Length Difference
+        len1, len2 = row_data['Dorado_Length'], row_data['Guppy_Length']
+        row_data['Length_Difference'] = (len1 - len2) if len1 is not None and len2 is not None else None # Should always be numbers >= 0
+
+        # GC Difference
+        gc1, gc2 = row_data['Dorado_GC'], row_data['Guppy_GC']
+        row_data['GC_Difference'] = (gc1 - gc2) if gc1 is not None and gc2 is not None else None
+
+        # Homopolymer Count Difference
+        hc1, hc2 = row_data['Dorado_Homop_Count'], row_data['Guppy_Homop_Count']
+        row_data['Homop_Count_Difference'] = (hc1 - hc2) if hc1 is not None and hc2 is not None else None
+
+        # Homopolymer Max Length Difference
+        hm1, hm2 = row_data['Dorado_Homop_MaxLen'], row_data['Guppy_Homop_MaxLen']
+        row_data['Homop_MaxLen_Difference'] = (hm1 - hm2) if hm1 is not None and hm2 is not None else None
+
+        # Ambiguity Count Difference
+        ac1, ac2 = row_data['Dorado_Ambig_Count'], row_data['Guppy_Ambig_Count']
+        row_data['Ambig_Count_Difference'] = (ac1 - ac2) if ac1 is not None and ac2 is not None else None
 
         comparison_data.append(row_data)
 
     # Create DataFrame
     run_comparison_df = pd.DataFrame(comparison_data)
+
+    # Optional: Define column order for clarity
+    column_order = [
+        'Sample_ID', 'Match_Type',
+        'Dorado_Header', 'Guppy_Header',
+        'Dorado_RiC', 'Guppy_RiC', 'RiC_Difference',
+        'Dorado_Length', 'Guppy_Length', 'Length_Difference',
+        'Dorado_GC', 'Guppy_GC', 'GC_Difference',
+        'Identity_Percent', 'Mismatches', 'Insertions_vs_Guppy', 'Deletions_vs_Guppy',
+        'Alignment_Length', 'Alignment_Score',
+        'Dorado_Homop_Count', 'Guppy_Homop_Count', 'Homop_Count_Difference',
+        'Dorado_Homop_MaxLen', 'Guppy_Homop_MaxLen', 'Homop_MaxLen_Difference',
+        'Dorado_Ambig_Count', 'Guppy_Ambig_Count', 'Ambig_Count_Difference',
+        'Dorado_Ambig_Freq', 'Guppy_Ambig_Freq',
+        'Alternative_Matches' # List column at the end
+    ]
+    # Reindex if all columns are present, otherwise use default order
+    try:
+        run_comparison_df = run_comparison_df.reindex(columns=column_order)
+    except KeyError:
+        print("Warning: Could not reorder columns in comparison DataFrame. Using default order.")
+
 
     return run_comparison_df
 
