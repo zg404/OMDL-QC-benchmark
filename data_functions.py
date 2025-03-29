@@ -3,7 +3,7 @@ import re
 import glob
 import pandas as pd
 from collections import defaultdict
-from typing import Dict, List, Any, Optional, Tuple, Union
+from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from Bio import SeqIO
 # from Bio.SeqRecord import SeqRecord
 from Bio import Align
@@ -12,6 +12,9 @@ from scipy import stats
 import numpy as np
 from natsort import natsorted # For natural sorting of run IDs
 
+
+# Define standard IUPAC ambiguity codes (excluding A, C, G, T)
+IUPAC_AMBIGUITY_CODES = "RYMKWSBVDHN"
 
 def extract_run_info(filename: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -321,6 +324,184 @@ def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
     }
     return results
 
+def _prefilter_and_align_pairs(
+    dorado_records: List[Dict[str, Any]],
+    guppy_records: List[Dict[str, Any]],
+    kmer_similarity_threshold: float,
+    length_ratio_threshold: float,
+    max_alignments: int
+) -> Tuple[List[Tuple[int, int, Dict[str, Any]]], Dict[Tuple[int, int], Optional[Dict[str, Any]]]]:
+    """
+    Prefilters sequence pairs based on length and k-mer similarity,
+    then performs pairwise alignment on the most promising pairs.
+
+    Args:
+        dorado_records: List of Dorado sequence record dictionaries for the sample.
+        guppy_records: List of Guppy sequence record dictionaries for the sample.
+        kmer_similarity_threshold: Minimum k-mer similarity score (%).
+        length_ratio_threshold: Minimum length ratio (shorter/longer).
+        max_alignments: Maximum number of alignments to perform.
+
+    Returns:
+        A tuple containing:
+        - aligned_pairs: List of tuples [(d_idx, g_idx, alignment_results), ...],
+                         sorted by identity (desc), for successfully aligned pairs.
+        - alignment_cache: Dictionary caching alignment results {(d_idx, g_idx): alignment_results}.
+    """
+    potential_pair_scores = [] # Store tuples: (d_idx, g_idx, kmer_score)
+    # 1. Pre-filter pairs using k-mer similarity and length ratio
+    for d_idx, d_record in enumerate(dorado_records):
+        for g_idx, g_record in enumerate(guppy_records):
+            len1, len2 = d_record['length'], g_record['length']
+            if min(len1, len2) <= 0: continue # Skip empty sequences  # noqa: E701
+            length_ratio = min(len1, len2) / max(len1, len2)
+
+            if length_ratio >= length_ratio_threshold:
+                kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence']) # Step 2.1
+
+                if kmer_sim >= kmer_similarity_threshold:
+                    potential_pair_scores.append((d_idx, g_idx, kmer_sim))
+
+    if not potential_pair_scores:
+            # No pairs passed pre-filtering, all sequences are unmatched for this sample
+            return [], {} # They will be added to _only lists later
+
+    else:
+        # 2. Perform full alignment on promising pairs
+        potential_pair_scores.sort(key=lambda x: x[2], reverse=True) # Sort by k-mer score DESC
+        aligned_pairs = [] # Store tuples: (d_idx, g_idx, alignment_results)
+        alignment_cache = {} # Cache results: {(d_idx, g_idx): alignment_results}
+
+        pairs_to_align = potential_pair_scores[:max_alignments] # Limit alignments
+
+
+        for d_idx, g_idx, kmer_score in pairs_to_align:
+            if (d_idx, g_idx) not in alignment_cache:
+                    alignment_results = align_sequences(dorado_records[d_idx]['sequence'], guppy_records[g_idx]['sequence'])
+                    alignment_cache[(d_idx, g_idx)] = alignment_results # Cache even if None
+
+            alignment_results = alignment_cache[(d_idx, g_idx)]
+            if alignment_results: # Only proceed if alignment was successful
+                aligned_pairs.append((d_idx, g_idx, alignment_results))
+
+        # 3. Assign matches based on alignment identity
+        if aligned_pairs:
+            aligned_pairs.sort(key=lambda x: x[2]['identity'], reverse=True) # Sort by identity DESC
+        return aligned_pairs, alignment_cache
+
+def _assign_matches(
+    aligned_pairs: List[Tuple[int, int, Dict[str, Any]]],
+    alignment_cache: Dict[Tuple[int, int], Optional[Dict[str, Any]]],
+    dorado_records: List[Dict[str, Any]],
+    guppy_records: List[Dict[str, Any]],
+    sample_id: str,
+    high_identity_threshold: float,
+    multiple_match_identity_diff: float
+) -> Tuple[List[Dict[str, Any]], Set[int], Set[int]]:
+    """
+    Assigns matches based on pre-computed alignment results, handling
+    unique high-confidence matches and ambiguous cases.
+
+    Args:
+        aligned_pairs: List of tuples [(d_idx, g_idx, alignment_results), ...]
+                       sorted by identity (desc) from _prefilter_and_align_pairs.
+        alignment_cache: Dictionary caching alignment results.
+        dorado_records: List of Dorado sequence record dictionaries for the sample.
+        guppy_records: List of Guppy sequence record dictionaries for the sample.
+        sample_id: The sample identifier.
+        high_identity_threshold: Identity (%) for high-confidence 1:1 match.
+        multiple_match_identity_diff: Max identity % difference for considering ambiguous matches.
+
+    Returns:
+        A tuple containing:
+        - assigned_matched_pairs: List of dictionaries for assigned matches in this sample.
+        - used_dorado_indices: Set of indices for used Dorado records.
+        - used_guppy_indices: Set of indices for used Guppy records.
+    """
+    # ... implementation to be moved here ...
+    assigned_matched_pairs = []
+    used_dorado_indices = set()
+    used_guppy_indices = set()
+
+
+    # First pass: Assign high-confidence unique matches
+    for d_idx, g_idx, align_res in aligned_pairs:
+        if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+            if align_res['identity'] >= high_identity_threshold:
+                assigned_matched_pairs.append({
+                    'sample_id': sample_id,
+                    'dorado': dorado_records[d_idx],
+                    'guppy': guppy_records[g_idx],
+                    'alignment': align_res,
+                    'multiple_matches': False,
+                    'match_confidence': 'high'
+                })
+                used_dorado_indices.add(d_idx)
+                used_guppy_indices.add(g_idx)
+
+    # Second pass: Handle remaining sequences and potential ambiguities
+    # Group remaining possible matches by dorado index
+    remaining_potentials = defaultdict(list)
+    for d_idx, g_idx, align_res in aligned_pairs:
+            if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
+                remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
+
+    for d_idx, possible_matches in remaining_potentials.items():
+            if not possible_matches: continue # Should not happen based on logic, but safe check  # noqa: E701
+
+            # Sort this dorado seq's possible guppy matches by identity
+            possible_matches.sort(key=lambda x: x['identity'], reverse=True)
+            best_match = possible_matches[0]
+            best_g_idx = best_match['g_idx']
+            best_identity = best_match['identity']
+
+            # Find other matches within the identity difference threshold
+            ambiguous_matches = [best_match]
+            for match in possible_matches[1:]:
+                if best_identity - match['identity'] <= multiple_match_identity_diff:
+                    ambiguous_matches.append(match)
+                else:
+                    break # Since they are sorted
+
+            # Assign match(es)
+            if len(ambiguous_matches) == 1:
+                # Single clear best match for this dorado seq among remaining
+                g_idx = best_g_idx
+                align_res = alignment_cache.get((d_idx, g_idx))
+                if align_res: # Should exist
+                    assigned_matched_pairs.append({
+                        'sample_id': sample_id,
+                        'dorado': dorado_records[d_idx],
+                        'guppy': guppy_records[g_idx],
+                        'alignment': align_res,
+                        'multiple_matches': False,
+                        'match_confidence': 'medium' if best_identity >= 80 else 'low'
+                    })
+                    used_dorado_indices.add(d_idx)
+                    used_guppy_indices.add(g_idx)
+            else:
+                # Ambiguous case: Multiple guppy seqs match this dorado seq similarly well
+                for match in ambiguous_matches:
+                    g_idx = match['g_idx']
+                    # Check again if guppy index was used by another ambiguous match in this loop
+                    if g_idx not in used_guppy_indices:
+                        align_res = alignment_cache.get((d_idx, g_idx))
+                        if align_res:
+                            assigned_matched_pairs.append({
+                                'sample_id': sample_id,
+                                'dorado': dorado_records[d_idx],
+                                'guppy': guppy_records[g_idx],
+                                'alignment': align_res,
+                                'multiple_matches': True, # Flag as ambiguous
+                                'match_confidence': 'ambiguous',
+                                'similarity_to_best': (match['identity'] / best_identity * 100.0) if best_identity > 0 else 0
+                            })
+                            used_guppy_indices.add(g_idx) # Mark guppy seq as used
+                # Mark dorado seq as used after processing all its ambiguous matches
+                used_dorado_indices.add(d_idx)
+    return assigned_matched_pairs, used_dorado_indices, used_guppy_indices
+
+
 def match_sequences(
     dorado_seqs: Dict[str, List[Dict[str, Any]]],
     guppy_seqs: Dict[str, List[Dict[str, Any]]]
@@ -402,122 +583,34 @@ def match_sequences(
 
         # === Case 2: Complex Match (Multiple Sequences in Dorado or Guppy or Both) ===
         elif num_dorado > 0 and num_guppy > 0:
-            potential_pair_scores = [] # Store tuples: (d_idx, g_idx, kmer_score)
+            # Prefilter and align promising pairs
+            aligned_pairs, alignment_cache = _prefilter_and_align_pairs(
+                dorado_records,
+                guppy_records,
+                KMER_SIMILARITY_THRESHOLD,
+                LENGTH_RATIO_THRESHOLD,
+                MAX_ALIGNMENTS_PER_SAMPLE
+            )
 
-            # 1. Pre-filter pairs using k-mer similarity and length ratio
-            for d_idx, d_record in enumerate(dorado_records):
-                for g_idx, g_record in enumerate(guppy_records):
-                    len1, len2 = d_record['length'], g_record['length']
-                    if min(len1, len2) <= 0: continue # Skip empty sequences  # noqa: E701
-                    length_ratio = min(len1, len2) / max(len1, len2)
+            if aligned_pairs:
+                sample_matched_pairs, sample_used_dorado, sample_used_guppy = _assign_matches(
+                    aligned_pairs,
+                    alignment_cache,
+                    dorado_records,
+                    guppy_records,
+                    sample_id,
+                    HIGH_IDENTITY_THRESHOLD, # Use the constants defined in match_sequences
+                    MULTIPLE_MATCH_IDENTITY_DIFF
+                )
+                matched_pairs.extend(sample_matched_pairs) # Add results to the main list
 
-                    if length_ratio >= LENGTH_RATIO_THRESHOLD:
-                        kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence']) # Step 2.1
-
-                        if kmer_sim >= KMER_SIMILARITY_THRESHOLD:
-                            potential_pair_scores.append((d_idx, g_idx, kmer_sim))
-
-            if not potential_pair_scores:
-                 # No pairs passed pre-filtering, all sequences are unmatched for this sample
-                 pass # They will be added to _only lists later
-
-            else:
-                # 2. Perform full alignment on promising pairs
-                potential_pair_scores.sort(key=lambda x: x[2], reverse=True) # Sort by k-mer score DESC
-                aligned_pairs = [] # Store tuples: (d_idx, g_idx, alignment_results)
-                alignment_cache = {} # Cache results: {(d_idx, g_idx): alignment_results}
-
-                pairs_to_align = potential_pair_scores[:MAX_ALIGNMENTS_PER_SAMPLE] # Limit alignments
-
-
-                for d_idx, g_idx, kmer_score in pairs_to_align:
-                    if (d_idx, g_idx) not in alignment_cache:
-                         alignment_results = align_sequences(dorado_records[d_idx]['sequence'], guppy_records[g_idx]['sequence'])
-                         alignment_cache[(d_idx, g_idx)] = alignment_results # Cache even if None
-
-                    alignment_results = alignment_cache[(d_idx, g_idx)]
-                    if alignment_results: # Only proceed if alignment was successful
-                        aligned_pairs.append((d_idx, g_idx, alignment_results))
-
-                # 3. Assign matches based on alignment identity
-                if aligned_pairs:
-                    aligned_pairs.sort(key=lambda x: x[2]['identity'], reverse=True) # Sort by identity DESC
-
-                    # First pass: Assign high-confidence unique matches
-                    for d_idx, g_idx, align_res in aligned_pairs:
-                        if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
-                            if align_res['identity'] >= HIGH_IDENTITY_THRESHOLD:
-                                matched_pairs.append({
-                                    'sample_id': sample_id,
-                                    'dorado': dorado_records[d_idx],
-                                    'guppy': guppy_records[g_idx],
-                                    'alignment': align_res,
-                                    'multiple_matches': False,
-                                    'match_confidence': 'high'
-                                })
-                                used_dorado_indices.add(d_idx)
-                                used_guppy_indices.add(g_idx)
-
-                    # Second pass: Handle remaining sequences and potential ambiguities
-                    # Group remaining possible matches by dorado index
-                    remaining_potentials = defaultdict(list)
-                    for d_idx, g_idx, align_res in aligned_pairs:
-                         if d_idx not in used_dorado_indices and g_idx not in used_guppy_indices:
-                             remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
-
-                    for d_idx, possible_matches in remaining_potentials.items():
-                         if not possible_matches: continue # Should not happen based on logic, but safe check  # noqa: E701
-
-                         # Sort this dorado seq's possible guppy matches by identity
-                         possible_matches.sort(key=lambda x: x['identity'], reverse=True)
-                         best_match = possible_matches[0]
-                         best_g_idx = best_match['g_idx']
-                         best_identity = best_match['identity']
-
-                         # Find other matches within the identity difference threshold
-                         ambiguous_matches = [best_match]
-                         for match in possible_matches[1:]:
-                             if best_identity - match['identity'] <= MULTIPLE_MATCH_IDENTITY_DIFF:
-                                 ambiguous_matches.append(match)
-                             else:
-                                 break # Since they are sorted
-
-                         # Assign match(es)
-                         if len(ambiguous_matches) == 1:
-                             # Single clear best match for this dorado seq among remaining
-                             g_idx = best_g_idx
-                             align_res = alignment_cache.get((d_idx, g_idx))
-                             if align_res: # Should exist
-                                 matched_pairs.append({
-                                     'sample_id': sample_id,
-                                     'dorado': dorado_records[d_idx],
-                                     'guppy': guppy_records[g_idx],
-                                     'alignment': align_res,
-                                     'multiple_matches': False,
-                                     'match_confidence': 'medium' if best_identity >= 80 else 'low'
-                                 })
-                                 used_dorado_indices.add(d_idx)
-                                 used_guppy_indices.add(g_idx)
-                         else:
-                             # Ambiguous case: Multiple guppy seqs match this dorado seq similarly well
-                             for match in ambiguous_matches:
-                                 g_idx = match['g_idx']
-                                 # Check again if guppy index was used by another ambiguous match in this loop
-                                 if g_idx not in used_guppy_indices:
-                                     align_res = alignment_cache.get((d_idx, g_idx))
-                                     if align_res:
-                                         matched_pairs.append({
-                                             'sample_id': sample_id,
-                                             'dorado': dorado_records[d_idx],
-                                             'guppy': guppy_records[g_idx],
-                                             'alignment': align_res,
-                                             'multiple_matches': True, # Flag as ambiguous
-                                             'match_confidence': 'ambiguous',
-                                             'similarity_to_best': (match['identity'] / best_identity * 100.0) if best_identity > 0 else 0
-                                         })
-                                         used_guppy_indices.add(g_idx) # Mark guppy seq as used
-                             # Mark dorado seq as used after processing all its ambiguous matches
-                             used_dorado_indices.add(d_idx)
+                # CRITICAL: Update the 'used' sets defined *within* the sample loop
+                # These sets were defined just before the 'elif' block [cite: 77]
+                used_dorado_indices.update(sample_used_dorado)
+                used_guppy_indices.update(sample_used_guppy)
+            # The 'else' case (no aligned pairs found) requires no action here,
+            # as the used_dorado_indices/used_guppy_indices sets will remain empty
+            # for this sample, and the subsequent code will correctly handle it.
 
 
         # --- Add any remaining unused sequences for this common sample to _only lists ---
@@ -543,6 +636,8 @@ def match_sequences(
           f"{len(dorado_only)} Dorado-only sequences, {len(guppy_only)} Guppy-only sequences.")
 
     return matched_pairs, dorado_only, guppy_only
+
+
 
 def calculate_gc_content(sequence_str: str) -> Optional[float]:
     """
@@ -607,9 +702,6 @@ def analyze_homopolymers(sequence_str: str, min_len: int = 5) -> Optional[Dict[s
                       results['max_len'] = run_len
 
     return results
-
-# Define standard IUPAC ambiguity codes (excluding A, C, G, T)
-IUPAC_AMBIGUITY_CODES = "RYMKWSBVDHN"
 
 def analyze_ambiguity(sequence_str: str) -> Optional[Dict[str, Any]]:
     """

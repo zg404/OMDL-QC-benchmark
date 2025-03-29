@@ -6,7 +6,7 @@ import ipywidgets as widgets
 from natsort import natsorted
 from Bio import SeqIO
 import io
-import re 
+# import re 
 
 
 def plot_metric_comparison(run_df: pd.DataFrame,
@@ -441,11 +441,7 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
                  else: print(f"Warning: alignment.format('fasta') yielded {len(seq_records)} records.")
              except Exception as fmt_ex: print(f"Warning: alignment.format('fasta') failed ({fmt_ex}).")
         # Fallback or primary string parsing if needed... ensure it works reliably now.
-        if aligned_dorado is None: # If format failed or wasn't used
-             # Add your most reliable string parsing logic here
-             # For simplicity, assuming it's populated correctly by now.
-             # If still having issues, add the parser back here.
-             # Placeholder Error:
+        if aligned_dorado is None:
              return HTML("<p><b>ERROR: Could not extract aligned sequences.</b></p>")
 
 
@@ -487,9 +483,9 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
 
             # Add chunk to HTML parts - Simplified Layout
             if i > 0: # Add separator before chunks 2, 3, ...
-                 html_parts.append(f"<hr style='border: none; border-top: 1px dashed #ccc; margin-top: 10px; margin-bottom: 10px;'>")
+                 html_parts.append("<hr style='border: none; border-top: 1px dashed #ccc; margin-top: 10px; margin-bottom: 10px;'>")
 
-            html_parts.append(f"<div style='margin-bottom: 10px;'>") # Div for each chunk
+            html_parts.append("<div style='margin-bottom: 10px;'>") # Div for each chunk
             html_parts.append(f"<div><i>Align Pos: {i+1}-{min(i+window_size, seq_length)}</i></div>") # Show alignment position
             html_parts.append(f"<div><b>Dorado:</b> {html_d}</div>") # Dorado sequence on its line
             html_parts.append(f"<div><b>Guppy:&nbsp;</b> {html_g}</div>") # Guppy sequence on its line (with space)
