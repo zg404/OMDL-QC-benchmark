@@ -115,6 +115,52 @@ def plot_histogram(run_df: pd.DataFrame,
     plt.tight_layout()
     return fig, ax
 
+def plot_consensus_ratios(summary_df: pd.DataFrame, figsize: tuple = (12, 7)) -> tuple:
+    """
+    Creates a bar chart comparing the consensus sequences per sample ratio
+    between Dorado and Guppy across different runs.
+
+    Args:
+        summary_df: DataFrame containing the overall summary data, including
+                    'Run_ID', 'Dorado_Consensus_Per_Sample_Ratio', and
+                    'Guppy_Consensus_Per_Sample_Ratio' columns.
+        figsize: Figure size.
+
+    Returns:
+        Tuple (matplotlib Figure, matplotlib Axes) or (None, None) if columns are missing.
+    """
+    required_cols = ['Run_ID', 'Dorado_Consensus_Per_Sample_Ratio', 'Guppy_Consensus_Per_Sample_Ratio']
+    if not all(col in summary_df.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in summary_df.columns]
+        print(f"Warning: Overall summary DataFrame missing required columns for ratio plot: {missing}")
+        return None, None
+    if summary_df.empty:
+        print("Warning: Overall summary DataFrame is empty. Cannot plot ratios.")
+        return None, None
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot bar chart
+    summary_df.plot.bar(
+        x='Run_ID',
+        y=['Dorado_Consensus_Per_Sample_Ratio', 'Guppy_Consensus_Per_Sample_Ratio'],
+        ax=ax,
+        label=['Dorado Ratio', 'Guppy Ratio'] # Set legend labels explicitly
+    )
+
+    # Customize plot
+    ax.set_title('Consensus Sequences per Sample Ratio (Dorado vs Guppy)')
+    ax.set_ylabel('Ratio (Total Consensus Seqs / Unique Samples)')
+    ax.set_xlabel('Run ID')
+    ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.7, label='Ideal Ratio (1.0)') # Add reference line at 1.0
+    ax.legend()
+    ax.tick_params(axis='x', rotation=45) # Rotate x-axis labels if many runs
+    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+
+    return fig, ax
+
+
 def plot_comparison_with_difference(run_df: pd.DataFrame,
                                     dorado_col: str,
                                     guppy_col: str,
@@ -200,26 +246,56 @@ def display_run_analysis(run_id, all_results_data):
 
     if run_df is None or run_df.empty:
         display(Markdown(f"**Warning:** No matched pairs found or comparison DataFrame is empty for run `{run_id}`. Cannot generate detailed plots."))
-        # Display basic counts if available
         display(Markdown(f"### Basic Counts for {run_id}"))
         display(Markdown(f"- Matched Pairs: {run_counts.get('matched', 'N/A')}"))
         display(Markdown(f"- Dorado-Only Sequences: {run_counts.get('dorado_only', 'N/A')}"))
         display(Markdown(f"- Guppy-Only Sequences: {run_counts.get('guppy_only', 'N/A')}"))
+        # ADD RUN-SPECIFIC RATIOS HERE TOO FOR CONSISTENCY IF NEEDED
+        dorado_total = run_counts.get('dorado_total', 0)
+        dorado_samples = run_counts.get('dorado_samples', 0)
+        guppy_total = run_counts.get('guppy_total', 0)
+        guppy_samples = run_counts.get('guppy_samples', 0)
+        dorado_ratio = dorado_total / dorado_samples if dorado_samples > 0 else 0
+        guppy_ratio = guppy_total / guppy_samples if guppy_samples > 0 else 0
+        display(Markdown(f"- Dorado Seqs/Sample Ratio: {dorado_ratio:.2f} ({dorado_total} Seqs / {dorado_samples} Samples)"))
+        display(Markdown(f"- Guppy Seqs/Sample Ratio: {guppy_ratio:.2f} ({guppy_total} Seqs / {guppy_samples} Samples)"))
         return
 
     # --- Display Summary Statistics ---
     display(Markdown(f"### Summary Statistics for {run_id} ({run_df.shape[0]} matched pairs)"))
+    stats_display = [] # Initialize list to hold stat strings
+
+    # Calculate and Add Run-Specific Ratios (NEW)
+    dorado_total = run_counts.get('dorado_total', 0)
+    dorado_samples = run_counts.get('dorado_samples', 0) # Assumes this was added in analysis_interface.ipynb
+    guppy_total = run_counts.get('guppy_total', 0)
+    guppy_samples = run_counts.get('guppy_samples', 0) # Assumes this was added
+
+    dorado_ratio = dorado_total / dorado_samples if dorado_samples > 0 else 0
+    guppy_ratio = guppy_total / guppy_samples if guppy_samples > 0 else 0
+
+    stats_display.append(f"#### Run-Level Sequence Counts:")
+    stats_display.append(f"- **Dorado Seqs/Sample Ratio**: {dorado_ratio:.2f} ({dorado_total} Total Seqs / {dorado_samples} Samples)")
+    stats_display.append(f"- **Guppy Seqs/Sample Ratio**: {guppy_ratio:.2f} ({guppy_total} Total Seqs / {guppy_samples} Samples)")
+    stats_display.append(f"- (Ratio > 1 may indicate fragmentation or multiple sequences per sample)")
+    stats_display.append(f"#### Paired Statistics (on {run_df.shape[0]} matched pairs):")
+
+
+    # Add Existing Paired Statistics
     if run_stats:
-        # Format and display key stats nicely
-        stats_display = []
         for metric, values in run_stats.items():
             if 'median_diff' in values and 'p_value' in values:
                 p_val_str = f"{values['p_value']:.4f}" if values['p_value'] is not None else 'N/A'
-                significance = "**(Significant)**" if values['p_value'] is not None and values['p_value'] < 0.05 else ""
-                stats_display.append(f"- **{metric}**: Median Diff = {values.get('median_diff', 'N/A'):.2f}, p-value = {p_val_str} {significance} (n={values.get('n_pairs', run_df.shape[0])})")
-        display(Markdown("\n".join(stats_display)))
+                significance = "**(p<0.05)**" if values['p_value'] is not None and values['p_value'] < 0.05 else ""
+                # Adjust n_pairs display based on availability
+                n_pairs_info = f"(n={values.get('n_pairs', 'N/A')})" if 'n_pairs' in values else ""
+                stats_display.append(f"- **{metric}**: Median Diff = {values.get('median_diff', 'N/A'):.2f}, p-value = {p_val_str} {significance} {n_pairs_info}")
     else:
-        display(Markdown("*Statistics calculation skipped or failed for this run.*"))
+        stats_display.append("*Paired statistics calculation skipped or failed for this run.*")
+
+    # Display all collected stats
+    display(Markdown("\n".join(stats_display)))
+
 
     # --- Generate Plots ---
     display(Markdown("---")) # Separator

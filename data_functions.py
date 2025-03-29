@@ -1290,7 +1290,17 @@ def generate_overall_summary(
         row_data['Guppy_Only_Seqs'] = counts.get('guppy_only', 0)
         row_data['Dorado_Total_Seqs'] = counts.get('dorado_total', 0)
         row_data['Guppy_Total_Seqs'] = counts.get('guppy_total', 0)
-
+        dorado_samples_count = counts.get('dorado_samples', 0)
+        guppy_samples_count = counts.get('guppy_samples', 0)  
+        # Calculate Ratios (handle division by zero)
+        row_data['Dorado_Consensus_Per_Sample_Ratio'] = (
+            row_data['Dorado_Total_Seqs'] / dorado_samples_count
+            if dorado_samples_count > 0 else 0
+        )
+        row_data['Guppy_Consensus_Per_Sample_Ratio'] = (
+            row_data['Guppy_Total_Seqs'] / guppy_samples_count
+            if guppy_samples_count > 0 else 0
+        )
 
         # --- Extract Key Statistics (Median Diffs, P-values) ---
         stats = run_result.get('stats', {}) # Get the stats dict
