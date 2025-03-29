@@ -5,6 +5,7 @@
 
 # misc docs
 .dev.*.md
+digest.txt
 
 # File folders
 results/
