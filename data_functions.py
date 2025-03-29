@@ -5,7 +5,7 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict, List, Any, Optional, Tuple, Union
 from Bio import SeqIO
-from Bio.SeqRecord import SeqRecord
+# from Bio.SeqRecord import SeqRecord
 from Bio import Align
 from Bio.SeqUtils import gc_fraction
 from scipy import stats
@@ -269,7 +269,7 @@ def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
         alignment = next(aligner.align(seq1, seq2), None)
 
     except OverflowError:
-        # Handle cases where alignment complexity is too high [cite: 24]
+        # Handle cases where alignment complexity is too high
         print(f"Warning: Alignment OverflowError for sequences of length {len(seq1)} and {len(seq2)}. Skipping alignment.")
         return None # Indicate failure
     except Exception as e:

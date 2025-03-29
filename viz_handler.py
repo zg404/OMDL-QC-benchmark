@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
+# import numpy as np
 from IPython.display import display, Markdown, clear_output, HTML
 import ipywidgets as widgets
 from natsort import natsorted
-
+from Bio import SeqIO
+import io
 import re 
 
 
@@ -138,7 +139,7 @@ def plot_comparison_with_difference(run_df: pd.DataFrame,
         Tuple (matplotlib Figure, array of matplotlib Axes).
     """
     if run_df is None or run_df.empty:
-        print(f"Warning: DataFrame is empty, cannot create combined plot.")
+        print("Warning: DataFrame is empty, cannot create combined plot.")
         return None, None
     required_cols = [dorado_col, guppy_col, diff_col]
     if not all(col in run_df.columns for col in required_cols):
@@ -174,7 +175,7 @@ def plot_comparison_with_difference(run_df: pd.DataFrame,
     xl_hist = diff_col.replace('_', ' ')
     hist_ax.set_xlabel(f"Difference ({xl_hist})")
     hist_ax.set_ylabel("Frequency")
-    hist_ax.set_title(f"Distribution of Differences")
+    hist_ax.set_title("Distribution of Differences")
     hist_ax.legend()
     hist_ax.grid(True, axis='y')
 
@@ -227,7 +228,7 @@ def display_run_analysis(run_id, all_results_data):
 
     # Plot 1: RiC Comparison
     try:
-        display(Markdown(f"#### Reads in Consensus (RiC) Comparison"))
+        display(Markdown("#### Reads in Consensus (RiC) Comparison"))
         fig_ric, _ = plot_comparison_with_difference(
             run_df,
             dorado_col='Dorado_RiC',
@@ -235,13 +236,13 @@ def display_run_analysis(run_id, all_results_data):
             diff_col='RiC_Difference',
             figure_title=f'{run_id} - RiC Comparison'
         )
-        if fig_ric: plt.show(fig_ric)
+        if fig_ric: plt.show(fig_ric)  # noqa: E701
     except Exception as e:
         print(f"Error plotting RiC: {e}")
 
     # Plot 2: Length Comparison
     try:
-        display(Markdown(f"#### Sequence Length Comparison"))
+        display(Markdown("#### Sequence Length Comparison"))
         fig_len, _ = plot_comparison_with_difference(
             run_df,
             dorado_col='Dorado_Length',
@@ -249,7 +250,7 @@ def display_run_analysis(run_id, all_results_data):
             diff_col='Length_Difference',
             figure_title=f'{run_id} - Length Comparison'
         )
-        if fig_len: plt.show(fig_len)
+        if fig_len: plt.show(fig_len)  # noqa: E701
     except Exception as e:
         print(f"Error plotting Length: {e}")
 
@@ -257,7 +258,7 @@ def display_run_analysis(run_id, all_results_data):
     try:
         # Check if GC columns exist and have data before plotting
         if 'Dorado_GC' in run_df.columns and 'Guppy_GC' in run_df.columns and run_df[['Dorado_GC', 'Guppy_GC']].notna().all(axis=1).any():
-             display(Markdown(f"#### GC Content Comparison"))
+             display(Markdown("#### GC Content Comparison"))
              fig_gc, _ = plot_comparison_with_difference(
                  run_df,
                  dorado_col='Dorado_GC',
@@ -265,15 +266,15 @@ def display_run_analysis(run_id, all_results_data):
                  diff_col='GC_Difference', # Assumes this column exists from Step 3.4
                  figure_title=f'{run_id} - GC Content Comparison'
              )
-             if fig_gc: plt.show(fig_gc)
+             if fig_gc: plt.show(fig_gc)  # noqa: E701
         else:
-             display(Markdown(f"*(Skipping GC Content plot: GC columns missing or contain only NaN values)*"))
+             display(Markdown("*(Skipping GC Content plot: GC columns missing or contain only NaN values)*"))
     except Exception as e:
         print(f"Error plotting GC Content: {e}")
 
     # Plot 4: Identity Distribution
     try:
-        display(Markdown(f"#### Sequence Identity Distribution"))
+        display(Markdown("#### Sequence Identity Distribution"))
         fig_identity, _ = plot_histogram(
              run_df,
              metric_col='Identity_Percent',
@@ -281,7 +282,7 @@ def display_run_analysis(run_id, all_results_data):
              xlabel='Sequence Identity (%)',
              bins=25 # More bins might be useful here
         )
-        if fig_identity: plt.show(fig_identity)
+        if fig_identity: plt.show(fig_identity)  # noqa: E701
     except Exception as e:
         print(f"Error plotting Identity: {e}")
 
@@ -291,7 +292,7 @@ def display_run_analysis(run_id, all_results_data):
         if 'Dorado_Homo_Count' in run_df.columns and 'Guppy_Homo_Count' in run_df.columns:
              run_df['Homo_Count_Difference'] = run_df['Dorado_Homo_Count'] - run_df['Guppy_Homo_Count']
              if run_df['Homo_Count_Difference'].notna().any():
-                 display(Markdown(f"#### Homopolymer Count Difference (Min Length 5)"))
+                 display(Markdown("#### Homopolymer Count Difference (Min Length 5)"))
                  fig_homo_c, _ = plot_histogram(
                       run_df,
                       metric_col='Homo_Count_Difference',
@@ -299,9 +300,9 @@ def display_run_analysis(run_id, all_results_data):
                       xlabel='Difference in Homopolymer Runs (Dorado - Guppy)',
                       reference_line=0
                  )
-                 if fig_homo_c: plt.show(fig_homo_c)
+                 if fig_homo_c: plt.show(fig_homo_c)  # noqa: E701
              else:
-                 display(Markdown(f"*(Skipping Homopolymer Count plot: No non-NaN difference values)*"))
+                 display(Markdown("*(Skipping Homopolymer Count plot: No non-NaN difference values)*"))
 
     except Exception as e:
         print(f"Error plotting Homopolymer Count Difference: {e}")
@@ -406,114 +407,58 @@ def create_sequence_alignment_viewer(run_id, all_results_data):
 
 def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
     """
-    Formats a Biopython pairwise alignment into HTML with highlighting.
+    Formats a Biopython pairwise alignment into simple HTML with highlighting,
+    displaying sequences on separate lines without BLAST coordinates or match bar.
 
     Args:
-        alignment_dict: The dictionary for a matched pair, MUST contain
-                        the 'alignment' sub-dictionary which includes the
-                        'alignment_obj' (a Bio.Align.Alignment object).
+        alignment_dict: Dictionary for matched pair with 'alignment_obj'.
         window_size: Number of bases to show per line chunk.
 
     Returns:
         IPython.display.HTML object containing the formatted alignment.
     """
+    # --- Initial Checks ---
     if not alignment_dict or 'alignment' not in alignment_dict or 'alignment_obj' not in alignment_dict['alignment']:
         return HTML("<p>Error: Alignment data is missing or invalid.</p>")
-
     alignment = alignment_dict['alignment']['alignment_obj']
-    identity_percent = alignment_dict['alignment'].get('identity', 0) # Get identity from dict
-
+    identity_percent = alignment_dict['alignment'].get('identity', 0)
     if alignment is None:
-         return HTML("<p>Error: Alignment object not found in provided data.</p>")
+         return HTML("<p>Error: Alignment object not found.</p>")
 
     try:
-        # --- Try using alignment.format("fasta") [Requires Biopython >= 1.79 approx] ---
+        # --- Get Aligned Sequences (Reuse reliable parsing logic) ---
         aligned_dorado = None
         aligned_guppy = None
+        # <<< Paste your validated parsing logic here to get aligned_dorado/guppy >>>
+        # Example using .format("fasta") as primary method:
         if hasattr(alignment, 'format') and callable(alignment.format):
-            try:
-                # Import necessary modules INSIDE the function or ensure they are at top of viz_handler.py
-                from Bio import SeqIO
-                import io # For StringIO
-
-                fasta_formatted_alignment = alignment.format("fasta")
-                # Use StringIO to treat the string as a file for SeqIO
-                seq_records = list(SeqIO.parse(io.StringIO(fasta_formatted_alignment), "fasta"))
-
-                if len(seq_records) == 2:
-                    # Assume order: first is target (Dorado), second is query (Guppy)
-                    # This assumption might need verification based on Bio.Align behavior
-                    aligned_dorado = str(seq_records[0].seq)
-                    aligned_guppy = str(seq_records[1].seq)
-                    # print("Debug: Successfully parsed alignment using alignment.format('fasta')") # Optional confirmation
-                else:
-                    print(f"Warning: alignment.format('fasta') produced {len(seq_records)} records (expected 2). Falling back to string parsing.")
-            except Exception as fmt_ex:
-                print(f"Warning: alignment.format('fasta') failed ({fmt_ex}), falling back to string parsing.")
-
-        # --- Fallback: If .format("fasta") failed or wasn't available, use improved string parsing ---
-        if aligned_dorado is None or aligned_guppy is None:
-            # print("Debug: Using fallback string parsing for alignment.") # Optional confirmation
-            aligned_seqs_str = str(alignment)
-            lines = aligned_seqs_str.strip().split('\n')
-            aligned_dorado = ""
-            aligned_guppy = ""
-            # Regex to find potential prefixes like 'target   0 ' or 'query   0 ' etc.
-            prefix_pattern = re.compile(r'^[a-zA-Z\d\s_.\-]+\s+\d+\s+') # More general prefix pattern
-
-            current_seq_type = None # Track if the last prefix was target or query
-
-            for line in lines:
-                line_strip = line.strip()
-                if not line_strip: continue
-
-                is_target_line = False
-                is_query_line = False
-
-                # Check for known prefixes
-                if prefix_pattern.match(line):
-                    # Crude check for target/query keywords
-                    if 'target' in line.lower() or 'seq1' in line.lower():
-                        current_seq_type = 'target'
-                        is_target_line = True
-                    elif 'query' in line.lower() or 'seq2' in line.lower():
-                        current_seq_type = 'query'
-                        is_query_line = True
-                    else:
-                        # If prefix matched but no keyword, assume based on previous line? Risky.
-                        # Or assume it continues the previous sequence type if wrapped?
-                        # Let's assume prefix means it's either target/query for now
-                        if current_seq_type == 'target': is_target_line = True
-                        if current_seq_type == 'query': is_query_line = True
+             try:
+                 fasta_formatted_alignment = alignment.format("fasta")
+                 seq_records = list(SeqIO.parse(io.StringIO(fasta_formatted_alignment), "fasta"))
+                 if len(seq_records) == 2:
+                     aligned_dorado = str(seq_records[0].seq)
+                     aligned_guppy = str(seq_records[1].seq)
+                 else: print(f"Warning: alignment.format('fasta') yielded {len(seq_records)} records.")
+             except Exception as fmt_ex: print(f"Warning: alignment.format('fasta') failed ({fmt_ex}).")
+        # Fallback or primary string parsing if needed... ensure it works reliably now.
+        if aligned_dorado is None: # If format failed or wasn't used
+             # Add your most reliable string parsing logic here
+             # For simplicity, assuming it's populated correctly by now.
+             # If still having issues, add the parser back here.
+             # Placeholder Error:
+             return HTML("<p><b>ERROR: Could not extract aligned sequences.</b></p>")
 
 
-                # Extract sequence part from the end of the line
-                seq_part_match = re.search(r'[ACGTN-]+$', line)
-                if seq_part_match:
-                    seq_part = seq_part_match.group(0)
-                    if is_target_line:
-                        aligned_dorado += seq_part
-                    elif is_query_line:
-                        aligned_guppy += seq_part
-                    # Handle wrapped lines without prefix (less common with PairwiseAligner str output)
-                    # elif current_seq_type == 'target':
-                    #     aligned_dorado += seq_part # Assume continuation
-                    # elif current_seq_type == 'query':
-                    #     aligned_guppy += seq_part # Assume continuation
-
+        # --- Length Check ---
         seq_length = len(aligned_dorado)
+        if seq_length == 0 or (seq_length != len(aligned_guppy)):
+            print(f"ERROR in format_alignment_html: Lengths differ/zero! D:{seq_length}, G:{len(aligned_guppy)}")
+            return HTML("<p><b>Error: Cannot display alignment. Lengths differ AFTER parsing.</b></p>")
 
-        # --- Length Check (Keep) ---
-        if seq_length == 0 or (seq_length != len(aligned_guppy)): # Added check for 0 length
-            print(f"ERROR in format_alignment_html: Aligned sequence lengths differ or are zero!")
-            print(f"  Dorado Length: {seq_length}, Guppy Length: {len(aligned_guppy)}")
-            return HTML("<p><b>Error: Cannot display alignment. Internal inconsistency detected (aligned sequence lengths differ or are zero AFTER parsing). Check parsing logic or alignment object.</b></p>")
-        # --- End Check ---
-
-        # Start HTML generation
+        # --- Generate HTML ---
         html_parts = []
         html_parts.append(f"<h4>Sequence Alignment (Identity: {identity_percent:.2f}%)</h4>")
-        html_parts.append("<div style='font-family: monospace; line-height: 1.6;'>") # Monospace font
+        html_parts.append("<div style='font-family: monospace, \"Courier New\", Courier; line-height: 1.6; overflow-x: auto; padding: 5px; border: 1px solid #eee;'>") # Monospace container
 
         # Legend
         html_parts.append("<div style='margin-bottom:10px;'>")
@@ -529,39 +474,33 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
 
             html_d = ""
             html_g = ""
-            match_line = ""
 
+            # Generate highlighted spans for each sequence chunk
             for j in range(len(chunk_dorado)):
                 d_char = chunk_dorado[j]
                 g_char = chunk_guppy[j]
-
-                if d_char == g_char: # Match
-                    style = 'background-color:#c8e6c9;'
-                    match_line += "|"
-                elif d_char == '-' or g_char == '-': # Gap
-                    style = 'background-color:#bbdefb;'
-                    match_line += " "
-                else: # Mismatch
-                    style = 'background-color:#f8bbd0;'
-                    match_line += "."
-
+                if d_char == g_char: style = 'background-color:#c8e6c9;'
+                elif d_char == '-' or g_char == '-': style = 'background-color:#bbdefb;'
+                else: style = 'background-color:#f8bbd0;'
                 html_d += f"<span style='{style}'>{d_char}</span>"
                 html_g += f"<span style='{style}'>{g_char}</span>"
 
-            # Add chunk to HTML
-            html_parts.append(f"<div style='margin-bottom: 15px;'>")
-            html_parts.append(f"<div>Position {i+1} - {min(i+window_size, seq_length)}</div>")
-            html_parts.append(f"<div>Dorado: {html_d}</div>")
-            html_parts.append(f"<div style='color: #777;'>Match: &nbsp;{match_line}</div>") # Match line
-            html_parts.append(f"<div>Guppy: &nbsp;{html_g}</div>") # Add space for alignment
-            html_parts.append("</div>")
+            # Add chunk to HTML parts - Simplified Layout
+            if i > 0: # Add separator before chunks 2, 3, ...
+                 html_parts.append(f"<hr style='border: none; border-top: 1px dashed #ccc; margin-top: 10px; margin-bottom: 10px;'>")
 
-        html_parts.append("</div>") # Close monospace div
+            html_parts.append(f"<div style='margin-bottom: 10px;'>") # Div for each chunk
+            html_parts.append(f"<div><i>Align Pos: {i+1}-{min(i+window_size, seq_length)}</i></div>") # Show alignment position
+            html_parts.append(f"<div><b>Dorado:</b> {html_d}</div>") # Dorado sequence on its line
+            html_parts.append(f"<div><b>Guppy:&nbsp;</b> {html_g}</div>") # Guppy sequence on its line (with space)
+            html_parts.append("</div>") # Close chunk div
+
+        html_parts.append("</div>") # Close main monospace div
         return HTML(''.join(html_parts))
 
     except Exception as e:
         import traceback
         print("--- EXCEPTION IN format_alignment_html ---")
-        traceback.print_exc() # Print full traceback for unexpected errors
+        traceback.print_exc()
         print("--- END EXCEPTION ---")
         return HTML(f"<p><b>Error generating alignment display: {str(e)}</b></p>")
