@@ -1,11 +1,11 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-# import numpy as np
 from IPython.display import display, Markdown, clear_output, HTML
 import ipywidgets as widgets
 from natsort import natsorted
 from Bio import SeqIO
 import io
+# import numpy as np
 # import re 
 
 
@@ -41,7 +41,7 @@ def plot_metric_comparison(run_df: pd.DataFrame,
     fig, ax = plt.subplots(figsize=figsize)
 
     # Scatter plot
-    ax.scatter(run_df[guppy_col], run_df[dorado_col], alpha=0.6, label=f'{run_df.shape[0]} pairs')
+    ax.scatter(run_df[guppy_col], run_df[dorado_col], alpha=0.6, label=f'n={run_df.shape[0]} pairs')
 
     # Default labels and title
     xl = xlabel if xlabel else guppy_col.replace('_', ' ')
@@ -62,7 +62,6 @@ def plot_metric_comparison(run_df: pd.DataFrame,
     plt.tight_layout()
     return fig, ax
 
-    # Add to data_functions.py (or define in notebook)
 def plot_histogram(run_df: pd.DataFrame,
                    metric_col: str,
                    title: str = None,
@@ -97,7 +96,7 @@ def plot_histogram(run_df: pd.DataFrame,
     fig, ax = plt.subplots(figsize=figsize)
 
     # Plot histogram
-    ax.hist(run_df[metric_col].dropna(), bins=bins, label=f'{run_df[metric_col].notna().sum()} values') # Drop NaN for plotting
+    ax.hist(run_df[metric_col].dropna(), bins=bins, label=f'n={run_df[metric_col].notna().sum()} pairs') # Drop NaN for plotting
 
     # Default labels and title
     xl = xlabel if xlabel else metric_col.replace('_', ' ')
@@ -116,7 +115,6 @@ def plot_histogram(run_df: pd.DataFrame,
     plt.tight_layout()
     return fig, ax
 
-    # Add to data_functions.py (or define in notebook)
 def plot_comparison_with_difference(run_df: pd.DataFrame,
                                     dorado_col: str,
                                     guppy_col: str,
@@ -151,7 +149,7 @@ def plot_comparison_with_difference(run_df: pd.DataFrame,
 
     # --- Scatter Plot (Left) ---
     scatter_ax = axes[0]
-    scatter_ax.scatter(run_df[guppy_col], run_df[dorado_col], alpha=0.6, label=f'{run_df.shape[0]} pairs')
+    scatter_ax.scatter(run_df[guppy_col], run_df[dorado_col], alpha=0.6, label=f'n={run_df.shape[0]} pairs')
     xl_scatter = guppy_col.replace('_', ' ')
     yl_scatter = dorado_col.replace('_', ' ')
     scatter_ax.set_xlabel(f"Guppy {xl_scatter.split(' ')[-1]}") # Extract metric name
@@ -168,9 +166,9 @@ def plot_comparison_with_difference(run_df: pd.DataFrame,
     # --- Histogram Plot (Right) ---
     hist_ax = axes[1]
     hist_data = run_df[diff_col].dropna()
-    hist_ax.hist(hist_data, bins=30, label=f'{len(hist_data)} values')
+    hist_ax.hist(hist_data, bins=30, label=f'n={len(hist_data)} pairs')
     # Reference line at 0
-    hist_ax.axvline(x=0, color='r', linestyle='--', alpha=0.7, label='x=0')
+    hist_ax.axvline(x=0, color='r', linestyle='--', alpha=0.7)
 
     xl_hist = diff_col.replace('_', ' ')
     hist_ax.set_xlabel(f"Difference ({xl_hist})")
@@ -236,7 +234,7 @@ def display_run_analysis(run_id, all_results_data):
             diff_col='RiC_Difference',
             figure_title=f'{run_id} - RiC Comparison'
         )
-        if fig_ric: plt.show(fig_ric)  # noqa: E701
+        if fig_ric: plt.show(fig_ric)  
     except Exception as e:
         print(f"Error plotting RiC: {e}")
 
@@ -250,7 +248,7 @@ def display_run_analysis(run_id, all_results_data):
             diff_col='Length_Difference',
             figure_title=f'{run_id} - Length Comparison'
         )
-        if fig_len: plt.show(fig_len)  # noqa: E701
+        if fig_len: plt.show(fig_len)  
     except Exception as e:
         print(f"Error plotting Length: {e}")
 
@@ -263,10 +261,10 @@ def display_run_analysis(run_id, all_results_data):
                  run_df,
                  dorado_col='Dorado_GC',
                  guppy_col='Guppy_GC',
-                 diff_col='GC_Difference', # Assumes this column exists from Step 3.4
+                 diff_col='GC_Difference',
                  figure_title=f'{run_id} - GC Content Comparison'
              )
-             if fig_gc: plt.show(fig_gc)  # noqa: E701
+             if fig_gc: plt.show(fig_gc)  
         else:
              display(Markdown("*(Skipping GC Content plot: GC columns missing or contain only NaN values)*"))
     except Exception as e:
@@ -280,27 +278,27 @@ def display_run_analysis(run_id, all_results_data):
              metric_col='Identity_Percent',
              title=f'{run_id} - Sequence Identity Distribution',
              xlabel='Sequence Identity (%)',
-             bins=25 # More bins might be useful here
+             bins=50 # adjust this as needed
         )
-        if fig_identity: plt.show(fig_identity)  # noqa: E701
+        if fig_identity: plt.show(fig_identity)
     except Exception as e:
         print(f"Error plotting Identity: {e}")
 
     # Plot 5 & 6: Homopolymer Count/MaxLen Difference (Optional)
-    # Example for Homo_Count difference
+    # Example for Homop_Count difference
     try:
-        if 'Dorado_Homo_Count' in run_df.columns and 'Guppy_Homo_Count' in run_df.columns:
-             run_df['Homo_Count_Difference'] = run_df['Dorado_Homo_Count'] - run_df['Guppy_Homo_Count']
-             if run_df['Homo_Count_Difference'].notna().any():
+        if 'Dorado_Homop_Count' in run_df.columns and 'Guppy_Homop_Count' in run_df.columns:
+             run_df['Homop_Count_Difference'] = run_df['Dorado_Homop_Count'] - run_df['Guppy_Homop_Count']
+             if run_df['Homop_Count_Difference'].notna().any():
                  display(Markdown("#### Homopolymer Count Difference (Min Length 5)"))
-                 fig_homo_c, _ = plot_histogram(
+                 fig_homop_c, _ = plot_histogram(
                       run_df,
-                      metric_col='Homo_Count_Difference',
+                      metric_col='Homop_Count_Difference',
                       title=f'{run_id} - Homopolymer Count Difference Distribution',
                       xlabel='Difference in Homopolymer Runs (Dorado - Guppy)',
                       reference_line=0
                  )
-                 if fig_homo_c: plt.show(fig_homo_c)  # noqa: E701
+                 if fig_homop_c: plt.show(fig_homop_c)
              else:
                  display(Markdown("*(Skipping Homopolymer Count plot: No non-NaN difference values)*"))
 
@@ -341,7 +339,7 @@ def create_sequence_alignment_viewer(run_id, all_results_data):
         style={'description_width': 'initial'}
     )
 
-    # Slider for window size (optional)
+    # Slider for window size
     window_slider = widgets.IntSlider(
         value=100, min=50, max=200, step=10,
         description='Window Size:', style={'description_width': 'initial'}
@@ -365,17 +363,10 @@ def create_sequence_alignment_viewer(run_id, all_results_data):
             # Find the correct matched_pair dictionary for the selected Sample_ID
             # This assumes Sample_ID is unique enough in the context of matched pairs for this run.
             # If multiple matches exist for one Sample_ID (ambiguous case), this might just pick the first.
+            # Maybe print a warning if multiple matches are found? or a secondary dropdown?
             target_pair = None
             for pair in matched_pairs:
-                # Use Sample_ID from the run_df as the key to find the pair
-                # We might need a more robust way if Sample_ID isn't unique in run_df
-                # or if multiple matches for a sample exist.
-                # Let's assume run_df has unique Sample_IDs for now, or we take the first match.
                  if pair.get('sample_id') == selected_sample_id:
-                     # Additional check: Match headers if possible to be more specific,
-                     # requires headers to be present in the run_df row.
-                     # row = run_df[run_df['Sample_ID'] == selected_sample_id].iloc[0]
-                     # if pair['dorado']['header'] == row['Dorado_Header']: # Requires these cols in run_df
                           target_pair = pair
                           break # Found the first match for this Sample ID
 
@@ -429,7 +420,6 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
         # --- Get Aligned Sequences (Reuse reliable parsing logic) ---
         aligned_dorado = None
         aligned_guppy = None
-        # <<< Paste your validated parsing logic here to get aligned_dorado/guppy >>>
         # Example using .format("fasta") as primary method:
         if hasattr(alignment, 'format') and callable(alignment.format):
              try:
@@ -452,6 +442,7 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
             return HTML("<p><b>Error: Cannot display alignment. Lengths differ AFTER parsing.</b></p>")
 
         # --- Generate HTML ---
+        # Lot of HTML parts to build and formatting can be tricky. This should be a simple, readable alignment view.
         html_parts = []
         html_parts.append(f"<h4>Sequence Alignment (Identity: {identity_percent:.2f}%)</h4>")
         html_parts.append("<div style='font-family: monospace, \"Courier New\", Courier; line-height: 1.6; overflow-x: auto; padding: 5px; border: 1px solid #eee;'>") # Monospace container

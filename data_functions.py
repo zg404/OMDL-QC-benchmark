@@ -94,8 +94,6 @@ def extract_sample_id(header: str) -> Optional[str]:
     match = re.search(pattern, header)
     if match:
         return match.group(1) # Returns "OMDLxxxxx"
-    # Fallback or logging if pattern not found, depending on how strict you need to be
-    # print(f"Warning: Could not extract OMDL sample ID from header: {header}")
     return None
 
 def parse_ric_value(header: str) -> Optional[int]:
@@ -157,7 +155,7 @@ def load_sequences(run_id: str, basecaller: str, seqs_dir: str) -> Optional[Dict
                     'sequence': sequence_str,
                     'length': sequence_len,
                     'ric': ric_value,
-                    # Optionally store the full SeqRecord object if needed for complex BioPython tasks later
+                    # store the full SeqRecord object if needed for complex BioPython tasks later
                     'seq_object': record
                 }
                 # Append this sequence's data to the list for its sample ID
@@ -257,12 +255,13 @@ def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
     aligner.mode = 'global' # Global alignment (Needleman-Wunsch)
 
     # --- !!! CHANGE SCORING HERE !!! ---
-    # Penalize mismatches and gaps
+    # Penalize mismatches and gaps in GLOBAL alignment
+    # The default scoring is match=1, mismatch=-1, open_gap=-2, extend_gap=-1
     # Example scores (these can be tuned):
-    aligner.match_score = 1.0   # Score for a match (default is 1.0)
+    aligner.match_score = 1.0   # Score for a match
     aligner.mismatch_score = -1.0 # usually negative of match_score, possibly x2
-    aligner.open_gap_score = -2 # Penalty for opening a gap (default is -2.0); should be larger than extend_gap_score
-    aligner.extend_gap_score = -1 # Penalty for extending a gap (default is -1.0)
+    aligner.open_gap_score = -2 # Penalty for opening a gap; should be larger than extend_gap_score
+    aligner.extend_gap_score = -1 # Penalty for extending a gap
 
 
     try:
@@ -282,8 +281,7 @@ def align_sequences(seq1: str, seq2: str) -> Optional[Dict[str, Any]]:
 
     # Check if an alignment was found
     if alignment is None:
-        # This might happen if sequences are extremely dissimilar with heavy penalties,
-        # though unlikely with 0 penalties.
+        # This might happen if sequences are extremely dissimilar with heavy penalties
         return None
 
     # --- Calculate Metrics Directly from Alignment Object ---
@@ -353,11 +351,11 @@ def _prefilter_and_align_pairs(
     for d_idx, d_record in enumerate(dorado_records):
         for g_idx, g_record in enumerate(guppy_records):
             len1, len2 = d_record['length'], g_record['length']
-            if min(len1, len2) <= 0: continue # Skip empty sequences  # noqa: E701
+            if min(len1, len2) <= 0: continue # Skip empty sequences
             length_ratio = min(len1, len2) / max(len1, len2)
 
             if length_ratio >= length_ratio_threshold:
-                kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence']) # Step 2.1
+                kmer_sim = calculate_kmer_similarity(d_record['sequence'], g_record['sequence'])
 
                 if kmer_sim >= kmer_similarity_threshold:
                     potential_pair_scores.append((d_idx, g_idx, kmer_sim))
@@ -447,7 +445,7 @@ def _assign_matches(
                 remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
 
     for d_idx, possible_matches in remaining_potentials.items():
-            if not possible_matches: continue # Should not happen based on logic, but safe check  # noqa: E701
+            if not possible_matches: continue # Should not happen based on logic, but safe check
 
             # Sort this dorado seq's possible guppy matches by identity
             possible_matches.sort(key=lambda x: x['identity'], reverse=True)
@@ -530,6 +528,7 @@ def match_sequences(
     dorado_only = []
     guppy_only = []
 
+    # --- !!! CHANGE K-mer SCORING HERE !!! ---
     # --- Configuration Thresholds ---
     KMER_SIMILARITY_THRESHOLD = 50.0  # Min k-mer similarity (%) for considering alignment
     LENGTH_RATIO_THRESHOLD = 0.5     # Min length ratio (shorter/longer) to consider match
@@ -605,7 +604,7 @@ def match_sequences(
                 matched_pairs.extend(sample_matched_pairs) # Add results to the main list
 
                 # CRITICAL: Update the 'used' sets defined *within* the sample loop
-                # These sets were defined just before the 'elif' block [cite: 77]
+                # These sets were defined just before the 'elif' block
                 used_dorado_indices.update(sample_used_dorado)
                 used_guppy_indices.update(sample_used_guppy)
             # The 'else' case (no aligned pairs found) requires no action here,
@@ -803,15 +802,15 @@ def generate_comparison_dataframe(matched_pairs: List[Dict[str, Any]]) -> pd.Dat
         row_data['Guppy_GC'] = calculate_gc_content(guppy_seq)
 
         # Homopolymers (store key results, handle None return)
-        dorado_homo = analyze_homopolymers(dorado_seq)
-        guppy_homo = analyze_homopolymers(guppy_seq)
-        row_data['Dorado_Homo_Count'] = dorado_homo['total_count'] if dorado_homo else None
-        row_data['Guppy_Homo_Count'] = guppy_homo['total_count'] if guppy_homo else None
-        row_data['Dorado_Homo_MaxLen'] = dorado_homo['max_len'] if dorado_homo else None
-        row_data['Guppy_Homo_MaxLen'] = guppy_homo['max_len'] if guppy_homo else None
-        # Optionally store the full dicts:
-        # row_data['Dorado_Homo_Details'] = dorado_homo
-        # row_data['Guppy_Homo_Details'] = guppy_homo
+        dorad_homop = analyze_homopolymers(dorado_seq)
+        guppy_homop = analyze_homopolymers(guppy_seq)
+        row_data['dorad_homop_Count'] = dorad_homop['total_count'] if dorad_homop else None
+        row_data['guppy_homop_Count'] = guppy_homop['total_count'] if guppy_homop else None
+        row_data['dorad_homop_MaxLen'] = dorad_homop['max_len'] if dorad_homop else None
+        row_data['guppy_homop_MaxLen'] = guppy_homop['max_len'] if guppy_homop else None
+        # Optionally store the full dicts for debugging:
+        # row_data['dorad_homop_Details'] = dorad_homop
+        # row_data['guppy_homop_Details'] = guppy_homop
 
         # Ambiguity (store key results, handle None return)
         dorado_ambig = analyze_ambiguity(dorado_seq)
@@ -820,7 +819,7 @@ def generate_comparison_dataframe(matched_pairs: List[Dict[str, Any]]) -> pd.Dat
         row_data['Guppy_Ambig_Count'] = guppy_ambig['total_count'] if guppy_ambig else None
         row_data['Dorado_Ambig_Freq'] = dorado_ambig['frequency'] if dorado_ambig else None
         row_data['Guppy_Ambig_Freq'] = guppy_ambig['frequency'] if guppy_ambig else None
-        # Optionally store the full dicts:
+        # Optionally store the full dicts for debugging:
         # row_data['Dorado_Ambig_Details'] = dorado_ambig
         # row_data['Guppy_Ambig_Details'] = guppy_ambig
 
@@ -877,8 +876,8 @@ def perform_paired_nonparametric_test(
         return None
 
     # Check for sufficient data points (Wilcoxon needs at least a few pairs)
-    # SciPy's Wilcoxon handles zero differences, but raises ValueError if data is identical
-    # or length is very small. Let's add a basic length check.
+    # Wilcoxon handles zero differences, but raises ValueError if data is identical
+    # or length is very small so we need a basic length check.
     min_required_pairs = 1 # Wilcoxon technically runs with 1, but warns for small N.
     if len(data1) < min_required_pairs:
          print(f"Warning: Insufficient data for {test_type} test (requires at least {min_required_pairs} pairs).")
@@ -890,13 +889,11 @@ def perform_paired_nonparametric_test(
          return None
 
     # Check for NaN values - Wilcoxon might handle them depending on version/options,
-    # but it's often better to remove pairs with NaN explicitly or handle upstream.
-    # For simplicity here, we'll let scipy handle it but be aware.
-    # Consider adding:
-    # combined_data = np.vstack((data1, data2)).T
-    # combined_data = combined_data[~np.isnan(combined_data).any(axis=1)]
-    # if len(combined_data) < min_required_pairs: return None
-    # data1, data2 = combined_data[:, 0], combined_data[:, 1]
+    # but it's often better to remove pairs with NaN explicitly
+    combined_data = np.vstack((data1, data2)).T
+    combined_data = combined_data[~np.isnan(combined_data).any(axis=1)]
+    if len(combined_data) < min_required_pairs: return None
+    data1, data2 = combined_data[:, 0], combined_data[:, 1]
 
     if test_type.lower() == 'wilcoxon':
         try:
@@ -912,7 +909,7 @@ def perform_paired_nonparametric_test(
             # Perform the Wilcoxon signed-rank test
             # Use alternative='two-sided' for standard comparison
             # zero_method='wilcox' is default, handles zeros appropriately
-            # correction=False is default, set True for continuity correction if desired
+            # correction=False is default, set True for continuity correction if needed
             statistic, p_value = stats.wilcoxon(data1, data2, zero_method='wilcox', alternative='two-sided')
 
             return statistic, p_value
@@ -953,8 +950,8 @@ def calculate_run_statistics(run_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
         'RiC': ('Dorado_RiC', 'Guppy_RiC'),
         'Length': ('Dorado_Length', 'Guppy_Length'),
         'GC': ('Dorado_GC', 'Guppy_GC'),
-        'Homo_Count': ('Dorado_Homo_Count', 'Guppy_Homo_Count'),
-        'Homo_MaxLen': ('Dorado_Homo_MaxLen', 'Guppy_Homo_MaxLen'),
+        'Homop_Count': ('dorad_homop_Count', 'guppy_homop_Count'),
+        'Homop_MaxLen': ('dorad_homop_MaxLen', 'guppy_homop_MaxLen'),
         'Ambig_Count': ('Dorado_Ambig_Count', 'Guppy_Ambig_Count'),
         'Ambig_Freq': ('Dorado_Ambig_Freq', 'Guppy_Ambig_Freq')
     }
@@ -966,8 +963,6 @@ def calculate_run_statistics(run_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
     if not all(col in run_df.columns for col in required_cols):
          missing = [col for col in required_cols if col not in run_df.columns]
          print(f"Warning: DataFrame missing required columns: {missing}. Cannot perform all statistics.")
-         # You might choose to return None or proceed with available columns
-         # For now, let's proceed and handle missing columns per metric
     # Inside calculate_run_statistics function (after validation):
     for metric_name, (col1, col2) in metric_pairs.items():
         results[metric_name] = {} # Sub-dictionary for each metric
@@ -1061,7 +1056,7 @@ def save_run_comparison(
     filename = f"{run_id}_comparison_data.{file_extension}"
     filepath = os.path.join(output_dir, filename)
 
-    # Ensure output directory exists (optional, could rely on notebook setup)
+    # Ensure output directory exists (optional, could rely on notebook setup in future)
     try:
         os.makedirs(output_dir, exist_ok=True)
     except OSError as e:
@@ -1119,23 +1114,21 @@ def generate_overall_summary(
         row_data['Matched_Pairs'] = counts.get('matched', 0)
         row_data['Dorado_Only_Seqs'] = counts.get('dorado_only', 0)
         row_data['Guppy_Only_Seqs'] = counts.get('guppy_only', 0)
-        # Add total sequence counts if available/needed, e.g.:
-        # row_data['Dorado_Total_Seqs'] = counts.get('dorado_total', 0)
-        # row_data['Guppy_Total_Seqs'] = counts.get('guppy_total', 0)
+        row_data['Dorado_Total_Seqs'] = counts.get('dorado_total', 0)
+        row_data['Guppy_Total_Seqs'] = counts.get('guppy_total', 0)
 
 
         # --- Extract Key Statistics (Median Diffs, P-values) ---
-        stats = run_result.get('stats', {}) # Get the stats dict from Step 4.2 output
+        stats = run_result.get('stats', {}) # Get the stats dict
 
         # Define metrics to extract from the stats dict
-        metrics_to_summarize = ['RiC', 'Length', 'GC', 'Homo_Count', 'Homo_MaxLen', 'Ambig_Count']
+        metrics_to_summarize = ['RiC', 'Length', 'GC', 'Homop_Count', 'Homop_MaxLen', 'Ambig_Count']
 
         for metric in metrics_to_summarize:
             metric_stats = stats.get(metric, {}) # Get sub-dict for this metric
             row_data[f'{metric}_Median_Diff'] = metric_stats.get('median_diff') # Use .get() for safety
             row_data[f'{metric}_p_value'] = metric_stats.get('p_value')
-            # Add mean diff or IQR if desired
-            # row_data[f'{metric}_Mean_Diff'] = metric_stats.get('mean_diff')
+            row_data[f'{metric}_Mean_Diff'] = metric_stats.get('mean_diff')
             # row_data[f'{metric}_IQR_Diff'] = metric_stats.get('iqr_diff')
             row_data[f'{metric}_N_Pairs'] = metric_stats.get('n_pairs', 0) # Include number of pairs used for test
 
@@ -1179,94 +1172,3 @@ def generate_overall_summary(
     except Exception as e:
         print(f"Error saving overall summary DataFrame to {filepath}: {e}")
         return None
-
-
-# Currently unused, but keeping for potential future use
-def load_summary(run_id: str, basecaller: str, summary_dir: str) -> Optional[Dict[str, Any]]:
-    """
-    Load summary data from the TSV-like .txt file for a specific run and basecaller.
-    Parses the main data table and extracts summary statistics from the end of the file.
-
-    Args:
-        run_id: The run identifier (e.g., "OMDL1").
-        basecaller: The basecaller name ("dorado" or "guppy").
-        summary_dir: The path to the directory containing summary .txt files.
-
-    Returns:
-        A dictionary containing the summary data DataFrame ('data') and
-        a dictionary of summary statistics ('stats'), or None if the file doesn't exist.
-        Stats dict includes: 'unique_samples', 'consensus_sequences', 'total_ric'.
-    """
-    # Construct the full path to the summary file (note the .txt extension)
-    filename = f"{run_id}_summary_{basecaller}.txt"
-    filepath = os.path.join(summary_dir, filename)
-
-    # Check if the file exists before attempting to open
-    if not os.path.exists(filepath):
-        print(f"Warning: Summary file not found - {filepath}")
-        return None
-
-    summary_df = None
-    summary_stats = {
-        'unique_samples': None,
-        'consensus_sequences': None,
-        'total_ric': None
-    }
-
-    try:
-        # Step 1: Read the main data table using pandas
-        # Assuming the table starts from the first line (header=0)
-        # and ends before the summary lines. pandas might stop reading
-        # automatically if the summary lines have a different number of columns,
-        # but explicitly handling might be safer if format varies.
-        # We'll read the whole file first, then extract summary lines separately.
-        summary_df = pd.read_csv(filepath, sep='\t', header=0)
-
-        # Remove potential summary lines that might have been read into the DataFrame
-        # Identify rows where the first column doesn't look like a filename (e.g., doesn't start with 'ONT')
-        # This assumes filenames always start with 'ONT', adjust if needed based on actual data.
-        if not summary_df.empty and summary_df.columns[0] == 'Filename': # Check if first column is 'Filename'
-             summary_df = summary_df[summary_df['Filename'].str.startswith('ONT', na=False)]
-
-        # Step 2: Read the file again to reliably extract summary statistics from the end
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
-
-        for line in lines:
-            line = line.strip()
-            if not line: # Skip empty lines
-                continue
-
-            parts = line.split('\t')
-            if len(parts) >= 2:
-                key = parts[0].strip()
-                value_str = parts[-1].strip() # Take the last part as value
-
-                try:
-                    value_int = int(value_str)
-                    if "Total Unique Samples" in key:
-                        summary_stats['unique_samples'] = value_int
-                    elif "Total Consensus Sequences" in key:
-                        summary_stats['consensus_sequences'] = value_int
-                    elif "Total Reads in Consensus Sequences" in key:
-                        summary_stats['total_ric'] = value_int
-                except ValueError:
-                    # Ignore lines where the value isn't an integer
-                    continue
-
-    except FileNotFoundError:
-        print(f"Error: Summary file not found during processing - {filepath}")
-        return None
-    except pd.errors.EmptyDataError:
-        print(f"Warning: Summary file is empty - {filepath}")
-        # Return dictionary with empty DataFrame and None stats
-        return {'data': pd.DataFrame(), 'stats': summary_stats}
-    except Exception as e:
-        print(f"Error processing summary file {filepath}: {e}")
-        return None # Or return partial data if appropriate
-
-    # Check if DataFrame was successfully loaded
-    if summary_df is None:
-         summary_df = pd.DataFrame() # Ensure a DataFrame is always returned
-
-    return {'data': summary_df, 'stats': summary_stats}
