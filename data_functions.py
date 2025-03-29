@@ -3,23 +3,14 @@ import re
 import glob
 import pandas as pd
 from collections import defaultdict
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio import Align
-
-
-def natural_sort_key(s):
-    """Helper function for natural sorting of strings containing numbers with prefixes"""
-    # Extract just the number from OMDL prefix
-    match = re.search(r'OMDL(\d+)', s)
-    if match:
-        # Return the number as an integer for proper numerical sorting
-        return int(match.group(1))
-    # Fallback for strings without the expected format or if sorting non-OMDL strings
-    # Returning a large number ensures non-matching formats sort last,
-    # or return 0/s depending on desired behavior for malformed names.
-    return float('inf') # Or return 0, or s
+from Bio.SeqUtils import gc_fraction
+from scipy import stats
+import numpy as np
+from natsort import natsorted # For natural sorting of run IDs
 
 
 def extract_run_info(filename: str) -> Tuple[Optional[str], Optional[str]]:
@@ -74,7 +65,7 @@ def discover_runs(seqs_dir: str) -> Tuple[pd.DataFrame, dict]:
     # Prepare data for DataFrame conversion
     if all_runs_status:
         # Sort the dictionary by run_id using the natural sort key
-        sorted_run_ids = sorted(all_runs_status.keys(), key=natural_sort_key)
+        sorted_run_ids = natsorted(all_runs_status.keys())
         sorted_runs_dict = {run_id: all_runs_status[run_id] for run_id in sorted_run_ids}
 
         # Convert the sorted dictionary to a DataFrame
@@ -417,7 +408,7 @@ def match_sequences(
             for d_idx, d_record in enumerate(dorado_records):
                 for g_idx, g_record in enumerate(guppy_records):
                     len1, len2 = d_record['length'], g_record['length']
-                    if min(len1, len2) <= 0: continue # Skip empty sequences
+                    if min(len1, len2) <= 0: continue # Skip empty sequences  # noqa: E701
                     length_ratio = min(len1, len2) / max(len1, len2)
 
                     if length_ratio >= LENGTH_RATIO_THRESHOLD:
@@ -475,7 +466,7 @@ def match_sequences(
                              remaining_potentials[d_idx].append({'g_idx': g_idx, 'identity': align_res['identity']})
 
                     for d_idx, possible_matches in remaining_potentials.items():
-                         if not possible_matches: continue # Should not happen based on logic, but safe check
+                         if not possible_matches: continue # Should not happen based on logic, but safe check  # noqa: E701
 
                          # Sort this dorado seq's possible guppy matches by identity
                          possible_matches.sort(key=lambda x: x['identity'], reverse=True)
@@ -553,6 +544,549 @@ def match_sequences(
 
     return matched_pairs, dorado_only, guppy_only
 
+def calculate_gc_content(sequence_str: str) -> Optional[float]:
+    """
+    Calculates the GC content (fraction) of a DNA sequence string.
+
+    Args:
+        sequence_str: The DNA sequence as a string.
+
+    Returns:
+        The GC content as a float (fraction between 0.0 and 1.0),
+        or None if the input is invalid or calculation fails.
+    """
+    if not isinstance(sequence_str, str) or not sequence_str:
+        # Handle non-string or empty input
+        return None
+    try:
+        # Calculate GC fraction. Biopython's gc_fraction handles 'N' and other non-ATGC chars appropriately.
+        # It returns a value between 0 and 1.
+        return gc_fraction(sequence_str)
+    except Exception as e:
+        # Catch potential errors during calculation
+        print(f"Warning: Could not calculate GC content for sequence snippet '{sequence_str[:20]}...': {e}")
+        return None
+
+def analyze_homopolymers(sequence_str: str, min_len: int = 5) -> Optional[Dict[str, Any]]:
+    """
+    Analyzes a sequence for homopolymer runs of a minimum length.
+
+    Args:
+        sequence_str: The DNA sequence as a string.
+        min_len: The minimum length of a homopolymer run to report (default: 5).
+
+    Returns:
+        A dictionary summarizing homopolymer runs:
+        {
+            'A': [list of lengths of A runs >= min_len],
+            'C': [list of lengths of C runs >= min_len],
+            'G': [list of lengths of G runs >= min_len],
+            'T': [list of lengths of T runs >= min_len],
+            'total_count': Total number of homopolymer runs found,
+            'max_len': Maximum length of any homopolymer run found
+        }
+        or None if the input is invalid.
+    """
+    if not isinstance(sequence_str, str) or not sequence_str or not isinstance(min_len, int) or min_len < 1:
+        return None # Invalid input
+
+    results = {'A': [], 'C': [], 'G': [], 'T': [], 'total_count': 0, 'max_len': 0}
+    bases = ['A', 'T', 'C', 'G'] # Case-insensitive matching usually desired
+
+    for base in bases:
+        # Regex to find runs of 'base' with length >= min_len (case-insensitive)
+        pattern = re.compile(f"({base}{{{min_len},}})", re.IGNORECASE)
+        for match in pattern.finditer(sequence_str):
+            run_len = len(match.group(1))
+            # Store based on the actual base found (upper case)
+            actual_base = match.group(1)[0].upper()
+            if actual_base in results: # Should always be true for ATCG
+                 results[actual_base].append(run_len)
+                 results['total_count'] += 1
+                 if run_len > results['max_len']:
+                      results['max_len'] = run_len
+
+    return results
+
+# Define standard IUPAC ambiguity codes (excluding A, C, G, T)
+IUPAC_AMBIGUITY_CODES = "RYMKWSBVDHN"
+
+def analyze_ambiguity(sequence_str: str) -> Optional[Dict[str, Any]]:
+    """
+    Analyzes a sequence for the count and frequency of IUPAC ambiguity codes.
+
+    Args:
+        sequence_str: The DNA sequence as a string.
+
+    Returns:
+        A dictionary summarizing ambiguity codes:
+        {
+            'total_count': Total number of ambiguity characters found,
+            'frequency': Total frequency (total_count / sequence_length),
+            'counts_per_code': {code: count for each code found}
+        }
+        or None if the input is invalid or sequence is empty. Returns 0 counts/frequency
+        if no ambiguity codes are found.
+    """
+    if not isinstance(sequence_str, str):
+        return None # Invalid input type
+
+    seq_len = len(sequence_str)
+    if seq_len == 0:
+        return None # Cannot calculate frequency for empty sequence
+
+    total_ambiguity_count = 0
+    counts_per_code = {}
+
+    # Use regex for efficient counting (case-insensitive)
+    # Creates a pattern like [RYMKWSBVDHN]
+    pattern = re.compile(f"([{IUPAC_AMBIGUITY_CODES}])", re.IGNORECASE)
+
+    for match in pattern.finditer(sequence_str):
+        code = match.group(1).upper() # Get the matched code, ensure uppercase
+        counts_per_code[code] = counts_per_code.get(code, 0) + 1
+        total_ambiguity_count += 1
+
+    frequency = total_ambiguity_count / seq_len
+
+    return {
+        'total_count': total_ambiguity_count,
+        'frequency': frequency,
+        'counts_per_code': counts_per_code
+    }
+
+def generate_comparison_dataframe(matched_pairs: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Generates a pandas DataFrame containing consolidated metrics for matched sequence pairs.
+
+    Args:
+        matched_pairs: A list of dictionaries, where each dictionary represents
+                       a matched pair from the match_sequences function.
+
+    Returns:
+        A pandas DataFrame with columns for sample ID, headers, RiC, length, GC content,
+        alignment metrics, homopolymer stats, ambiguity stats, and differences.
+    """
+    comparison_data = []
+
+    if not matched_pairs:
+        # Return an empty DataFrame with expected columns if no pairs are provided
+        # Define expected columns structure here if needed, or return empty DF
+        return pd.DataFrame()
+
+    for pair in matched_pairs:
+        row_data = {}
+
+        # --- Basic Info ---
+        row_data['Sample_ID'] = pair.get('sample_id', None)
+        dorado_rec = pair.get('dorado', {})
+        guppy_rec = pair.get('guppy', {})
+        row_data['Dorado_Header'] = dorado_rec.get('header', None)
+        row_data['Guppy_Header'] = guppy_rec.get('header', None)
+        row_data['Dorado_RiC'] = dorado_rec.get('ric', None)
+        row_data['Guppy_RiC'] = guppy_rec.get('ric', None)
+        row_data['Dorado_Length'] = dorado_rec.get('length', 0) # Use 0 for calculations if missing
+        row_data['Guppy_Length'] = guppy_rec.get('length', 0)
+
+        # --- Match Quality ---
+        row_data['Multiple_Matches'] = pair.get('multiple_matches', False)
+        row_data['Match_Confidence'] = pair.get('match_confidence', None)
+
+        # --- Alignment Metrics (from pair['alignment']) ---
+        alignment_res = pair.get('alignment', {})
+        row_data['Identity_Percent'] = alignment_res.get('identity', None)
+        row_data['Mismatches'] = alignment_res.get('mismatches', None)
+        row_data['Insertions_vs_Guppy'] = alignment_res.get('insertions', None) # Gaps in Dorado seq
+        row_data['Deletions_vs_Guppy'] = alignment_res.get('deletions', None)   # Gaps in Guppy seq
+        row_data['Alignment_Length'] = alignment_res.get('alignment_length', None)
+        row_data['Alignment_Score'] = alignment_res.get('score', None)
+
+
+        # --- Calculated Metrics ---
+        dorado_seq = dorado_rec.get('sequence', "")
+        guppy_seq = guppy_rec.get('sequence', "")
+
+        # GC Content (handle None return)
+        row_data['Dorado_GC'] = calculate_gc_content(dorado_seq)
+        row_data['Guppy_GC'] = calculate_gc_content(guppy_seq)
+
+        # Homopolymers (store key results, handle None return)
+        dorado_homo = analyze_homopolymers(dorado_seq)
+        guppy_homo = analyze_homopolymers(guppy_seq)
+        row_data['Dorado_Homo_Count'] = dorado_homo['total_count'] if dorado_homo else None
+        row_data['Guppy_Homo_Count'] = guppy_homo['total_count'] if guppy_homo else None
+        row_data['Dorado_Homo_MaxLen'] = dorado_homo['max_len'] if dorado_homo else None
+        row_data['Guppy_Homo_MaxLen'] = guppy_homo['max_len'] if guppy_homo else None
+        # Optionally store the full dicts:
+        # row_data['Dorado_Homo_Details'] = dorado_homo
+        # row_data['Guppy_Homo_Details'] = guppy_homo
+
+        # Ambiguity (store key results, handle None return)
+        dorado_ambig = analyze_ambiguity(dorado_seq)
+        guppy_ambig = analyze_ambiguity(guppy_seq)
+        row_data['Dorado_Ambig_Count'] = dorado_ambig['total_count'] if dorado_ambig else None
+        row_data['Guppy_Ambig_Count'] = guppy_ambig['total_count'] if guppy_ambig else None
+        row_data['Dorado_Ambig_Freq'] = dorado_ambig['frequency'] if dorado_ambig else None
+        row_data['Guppy_Ambig_Freq'] = guppy_ambig['frequency'] if guppy_ambig else None
+        # Optionally store the full dicts:
+        # row_data['Dorado_Ambig_Details'] = dorado_ambig
+        # row_data['Guppy_Ambig_Details'] = guppy_ambig
+
+        # --- Difference Metrics (handle None values carefully) ---
+        try:
+            row_data['RiC_Difference'] = (row_data['Dorado_RiC'] - row_data['Guppy_RiC']) if row_data['Dorado_RiC'] is not None and row_data['Guppy_RiC'] is not None else None
+        except TypeError:
+            row_data['RiC_Difference'] = None
+        try:
+            row_data['Length_Difference'] = row_data['Dorado_Length'] - row_data['Guppy_Length']
+        except TypeError:
+             row_data['Length_Difference'] = None
+        try:
+            row_data['GC_Difference'] = (row_data['Dorado_GC'] - row_data['Guppy_GC']) if row_data['Dorado_GC'] is not None and row_data['Guppy_GC'] is not None else None
+        except TypeError:
+             row_data['GC_Difference'] = None
+
+        comparison_data.append(row_data)
+
+    # Create DataFrame
+    run_comparison_df = pd.DataFrame(comparison_data)
+
+    return run_comparison_df
+
+def perform_paired_nonparametric_test(
+    data1: Union[List[float], np.ndarray],
+    data2: Union[List[float], np.ndarray],
+    test_type: str = 'wilcoxon'
+) -> Optional[Tuple[float, float]]:
+    """
+    Performs a paired non-parametric statistical test between two datasets.
+
+    Args:
+        data1: First list or array of paired numerical data.
+        data2: Second list or array of paired numerical data. Must be the same length as data1.
+        test_type: The type of non-parametric test to perform. Currently supports 'wilcoxon'.
+
+    Returns:
+        A tuple containing the test statistic and the p-value,
+        or None if the test cannot be performed (e.g., insufficient data, inputs invalid).
+    """
+    # Basic validation: Check if inputs are lists or numpy arrays
+    if not isinstance(data1, (list, np.ndarray)) or not isinstance(data2, (list, np.ndarray)):
+        print("Warning: Inputs must be lists or numpy arrays.")
+        return None
+
+    # Convert to numpy arrays for easier handling
+    data1 = np.asarray(data1)
+    data2 = np.asarray(data2)
+
+    # Check for equal length
+    if len(data1) != len(data2):
+        print("Warning: Input data lists must have the same length.")
+        return None
+
+    # Check for sufficient data points (Wilcoxon needs at least a few pairs)
+    # SciPy's Wilcoxon handles zero differences, but raises ValueError if data is identical
+    # or length is very small. Let's add a basic length check.
+    min_required_pairs = 1 # Wilcoxon technically runs with 1, but warns for small N.
+    if len(data1) < min_required_pairs:
+         print(f"Warning: Insufficient data for {test_type} test (requires at least {min_required_pairs} pairs).")
+         return None
+
+    # Check if data is numeric (redundant if type hints are enforced, but good practice)
+    if not np.issubdtype(data1.dtype, np.number) or not np.issubdtype(data2.dtype, np.number):
+         print("Warning: Input data must be numeric.")
+         return None
+
+    # Check for NaN values - Wilcoxon might handle them depending on version/options,
+    # but it's often better to remove pairs with NaN explicitly or handle upstream.
+    # For simplicity here, we'll let scipy handle it but be aware.
+    # Consider adding:
+    # combined_data = np.vstack((data1, data2)).T
+    # combined_data = combined_data[~np.isnan(combined_data).any(axis=1)]
+    # if len(combined_data) < min_required_pairs: return None
+    # data1, data2 = combined_data[:, 0], combined_data[:, 1]
+
+    if test_type.lower() == 'wilcoxon':
+        try:
+            # Calculate differences, ignoring pairs where difference is zero for Wilcoxon
+            diff = data1 - data2
+            diff_nonzero = diff[diff != 0]
+
+            # If all differences are zero, the test is not applicable / p-value is 1
+            if len(diff_nonzero) == 0:
+                 print("Warning: All differences are zero, Wilcoxon test not applicable (p=1.0 assumed).")
+                 return 0.0, 1.0 # Or return None, depending on desired handling
+
+            # Perform the Wilcoxon signed-rank test
+            # Use alternative='two-sided' for standard comparison
+            # zero_method='wilcox' is default, handles zeros appropriately
+            # correction=False is default, set True for continuity correction if desired
+            statistic, p_value = stats.wilcoxon(data1, data2, zero_method='wilcox', alternative='two-sided')
+
+            return statistic, p_value
+
+        except ValueError as ve:
+            # Handle specific errors, e.g., insufficient data after removing zeros
+            print(f"Error during Wilcoxon test: {ve}")
+            return None
+        except Exception as e:
+            # Catch any other unexpected errors
+            print(f"An unexpected error occurred during the {test_type} test: {e}")
+            return None
+    else:
+        print(f"Error: Unsupported test type '{test_type}'. Only 'wilcoxon' is implemented.")
+        return None
+
+def calculate_run_statistics(run_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
+    """
+    Calculates descriptive statistics and performs paired non-parametric tests
+    on the comparison DataFrame for a single run.
+
+    Args:
+        run_df: The DataFrame containing paired comparison data for one run
+                (output of generate_comparison_dataframe).
+
+    Returns:
+        A dictionary containing statistics (median differences, p-values, etc.)
+        for key metrics, or None if input is invalid or empty.
+    """
+    # Inside calculate_run_statistics function:
+
+    if not isinstance(run_df, pd.DataFrame) or run_df.empty:
+        print("Warning: Input must be a non-empty pandas DataFrame.")
+        return None
+
+    # Define the key metric pairs to analyze
+    metric_pairs = {
+        'RiC': ('Dorado_RiC', 'Guppy_RiC'),
+        'Length': ('Dorado_Length', 'Guppy_Length'),
+        'GC': ('Dorado_GC', 'Guppy_GC'),
+        'Homo_Count': ('Dorado_Homo_Count', 'Guppy_Homo_Count'),
+        'Homo_MaxLen': ('Dorado_Homo_MaxLen', 'Guppy_Homo_MaxLen'),
+        'Ambig_Count': ('Dorado_Ambig_Count', 'Guppy_Ambig_Count'),
+        'Ambig_Freq': ('Dorado_Ambig_Freq', 'Guppy_Ambig_Freq')
+    }
+
+    results = {} # Dictionary to store all results
+
+    # Check if required columns exist
+    required_cols = [col for pair in metric_pairs.values() for col in pair]
+    if not all(col in run_df.columns for col in required_cols):
+         missing = [col for col in required_cols if col not in run_df.columns]
+         print(f"Warning: DataFrame missing required columns: {missing}. Cannot perform all statistics.")
+         # You might choose to return None or proceed with available columns
+         # For now, let's proceed and handle missing columns per metric
+    # Inside calculate_run_statistics function (after validation):
+    for metric_name, (col1, col2) in metric_pairs.items():
+        results[metric_name] = {} # Sub-dictionary for each metric
+
+        # Check if both columns for this metric exist
+        if col1 not in run_df.columns or col2 not in run_df.columns:
+            print(f"Skipping statistics for {metric_name} due to missing columns.")
+            results[metric_name]['error'] = "Missing columns"
+            continue
+
+        # Extract data, dropping rows where either value is NaN for this pair
+        valid_data = run_df[[col1, col2]].dropna()
+
+        if valid_data.empty:
+             print(f"No valid data pairs for {metric_name} after dropping NaN.")
+             results[metric_name]['error'] = "No valid data"
+             continue
+
+        data1 = valid_data[col1]
+        data2 = valid_data[col2]
+
+        # Calculate Differences (Data1 - Data2, e.g., Dorado - Guppy)
+        differences = data1 - data2
+
+        # --- Descriptive Statistics for Differences ---
+        results[metric_name]['median_diff'] = np.median(differences)
+        results[metric_name]['mean_diff'] = np.mean(differences)
+        # Calculate IQR (Interquartile Range)
+        q1 = np.percentile(differences, 25)
+        q3 = np.percentile(differences, 75)
+        results[metric_name]['iqr_diff'] = q3 - q1
+        results[metric_name]['n_pairs'] = len(valid_data) # Number of pairs used
+
+        # --- Perform Paired Non-parametric Test ---
+        test_result = perform_paired_nonparametric_test(data1.to_list(), data2.to_list(), test_type='wilcoxon')
+
+        if test_result:
+            statistic, p_value = test_result
+            results[metric_name]['test_statistic'] = statistic
+            results[metric_name]['p_value'] = p_value
+        else:
+            results[metric_name]['test_statistic'] = None
+            results[metric_name]['p_value'] = None
+            results[metric_name]['error'] = results[metric_name].get('error', 'Test failed or insufficient data') # Keep previous error if exists
+
+    return results
+
+def save_run_comparison(
+    run_df: pd.DataFrame,
+    run_id: str,
+    output_dir: str,
+    format: str = 'tsv'
+) -> Optional[str]:
+    """
+    Saves the run-specific comparison DataFrame to a file (TSV or CSV).
+
+    Args:
+        run_df: The DataFrame containing detailed comparison data for matched pairs.
+        run_id: The run identifier (e.g., "OMDL1").
+        output_dir: The path to the directory where the file will be saved.
+        format: The output file format ('tsv' or 'csv'). Defaults to 'tsv'.
+
+    Returns:
+        The full path to the saved file, or None if saving fails.
+    """
+    if not isinstance(run_df, pd.DataFrame):
+        print("Error: Input 'run_df' must be a pandas DataFrame.")
+        return None
+    if run_df.empty:
+        print("Warning: Input DataFrame is empty. No file will be saved.")
+        return None
+    if not run_id or not isinstance(run_id, str):
+        print("Error: Invalid 'run_id'.")
+        return None
+    if not output_dir or not isinstance(output_dir, str):
+         print("Error: Invalid 'output_dir'.")
+         return None
+
+    # Determine separator and file extension based on format
+    if format.lower() == 'csv':
+        separator = ','
+        file_extension = 'csv'
+    elif format.lower() == 'tsv':
+        separator = '\t'
+        file_extension = 'tsv'
+    else:
+        print(f"Error: Unsupported format '{format}'. Use 'tsv' or 'csv'.")
+        return None
+
+    # Construct filename and full path
+    filename = f"{run_id}_comparison_data.{file_extension}"
+    filepath = os.path.join(output_dir, filename)
+
+    # Ensure output directory exists (optional, could rely on notebook setup)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except OSError as e:
+         print(f"Error creating output directory {output_dir}: {e}")
+         return None
+
+    try:
+        run_df.to_csv(filepath, sep=separator, index=False, encoding='utf-8')
+        print(f"Run comparison data saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        print(f"Error saving DataFrame to {filepath}: {e}")
+        return None
+
+def generate_overall_summary(
+    all_runs_results: Dict[str, Dict[str, Any]],
+    output_dir: str,
+    format: str = 'tsv'
+) -> Optional[str]:
+    """
+    Generates an overall summary DataFrame aggregating key statistics and counts
+    across all processed runs and saves it to a file.
+
+    Args:
+        all_runs_results: A dictionary where keys are run IDs and values are
+                          dictionaries containing processed data for each run.
+                          Expected structure per run_id:
+                          {
+                              'stats': dict_output_from_calculate_run_statistics,
+                              'counts': {'matched': int, 'dorado_only': int, 'guppy_only': int}
+                              # Add other relevant top-level counts if needed, e.g., total sequences
+                          }
+        output_dir: The path to the directory where the summary file will be saved.
+        format: The output file format ('tsv' or 'csv'). Defaults to 'tsv'.
+
+    Returns:
+        The full path to the saved summary file, or None if saving fails or input is invalid.
+    """
+    if not isinstance(all_runs_results, dict) or not all_runs_results:
+        print("Error: Input 'all_runs_results' must be a non-empty dictionary.")
+        return None
+    if not output_dir or not isinstance(output_dir, str):
+         print("Error: Invalid 'output_dir'.")
+         return None
+
+    summary_data_list = []
+    processed_run_ids = natsorted(all_runs_results.keys()) # Use natural sort for Run IDs
+
+    for run_id in processed_run_ids:
+        run_result = all_runs_results[run_id]
+        row_data = {'Run_ID': run_id}
+
+        # --- Extract Counts ---
+        counts = run_result.get('counts', {})
+        row_data['Matched_Pairs'] = counts.get('matched', 0)
+        row_data['Dorado_Only_Seqs'] = counts.get('dorado_only', 0)
+        row_data['Guppy_Only_Seqs'] = counts.get('guppy_only', 0)
+        # Add total sequence counts if available/needed, e.g.:
+        # row_data['Dorado_Total_Seqs'] = counts.get('dorado_total', 0)
+        # row_data['Guppy_Total_Seqs'] = counts.get('guppy_total', 0)
+
+
+        # --- Extract Key Statistics (Median Diffs, P-values) ---
+        stats = run_result.get('stats', {}) # Get the stats dict from Step 4.2 output
+
+        # Define metrics to extract from the stats dict
+        metrics_to_summarize = ['RiC', 'Length', 'GC', 'Homo_Count', 'Homo_MaxLen', 'Ambig_Count']
+
+        for metric in metrics_to_summarize:
+            metric_stats = stats.get(metric, {}) # Get sub-dict for this metric
+            row_data[f'{metric}_Median_Diff'] = metric_stats.get('median_diff') # Use .get() for safety
+            row_data[f'{metric}_p_value'] = metric_stats.get('p_value')
+            # Add mean diff or IQR if desired
+            # row_data[f'{metric}_Mean_Diff'] = metric_stats.get('mean_diff')
+            # row_data[f'{metric}_IQR_Diff'] = metric_stats.get('iqr_diff')
+            row_data[f'{metric}_N_Pairs'] = metric_stats.get('n_pairs', 0) # Include number of pairs used for test
+
+
+        summary_data_list.append(row_data)
+    if not summary_data_list:
+        print("Warning: No data aggregated for the overall summary. No file saved.")
+        return None
+
+    # Create DataFrame
+    overall_summary_df = pd.DataFrame(summary_data_list)
+
+    # --- Save the DataFrame ---
+    # Determine separator and file extension
+    if format.lower() == 'csv':
+        separator = ','
+        file_extension = 'csv'
+    elif format.lower() == 'tsv':
+        separator = '\t'
+        file_extension = 'tsv'
+    else:
+        print(f"Error: Unsupported format '{format}'. Use 'tsv' or 'csv'.")
+        return None
+
+    # Construct filename and full path
+    filename = f"overall_comparison_summary.{file_extension}"
+    filepath = os.path.join(output_dir, filename)
+
+    # Ensure output directory exists
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except OSError as e:
+         print(f"Error creating output directory {output_dir}: {e}")
+         return None
+
+    # Save the file
+    try:
+        overall_summary_df.to_csv(filepath, sep=separator, index=False, encoding='utf-8', float_format='%.4f') # Format floats nicely
+        print(f"Overall summary data saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        print(f"Error saving overall summary DataFrame to {filepath}: {e}")
+        return None
 
 
 # Currently unused, but keeping for potential future use

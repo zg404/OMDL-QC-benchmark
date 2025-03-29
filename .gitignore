@@ -8,5 +8,6 @@
 
 # File folders
 results/
-summary/*.txt
-seqs/*.fasta
+summary/
+seqs/
+test_book.ipynb
