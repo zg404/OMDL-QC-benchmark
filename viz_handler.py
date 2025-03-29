@@ -208,7 +208,7 @@ def display_run_analysis(run_id, all_results_data):
         display(Markdown(f"- Guppy-Only Sequences: {run_counts.get('guppy_only', 'N/A')}"))
         return
 
-    # --- Display Summary Statistics --- [cite: 345]
+    # --- Display Summary Statistics ---
     display(Markdown(f"### Summary Statistics for {run_id} ({run_df.shape[0]} matched pairs)"))
     if run_stats:
         # Format and display key stats nicely
@@ -222,10 +222,10 @@ def display_run_analysis(run_id, all_results_data):
     else:
         display(Markdown("*Statistics calculation skipped or failed for this run.*"))
 
-    # --- Generate Plots --- [cite: 346, 347, 348]
+    # --- Generate Plots ---
     display(Markdown("---")) # Separator
 
-    # Plot 1: RiC Comparison [cite: 346]
+    # Plot 1: RiC Comparison
     try:
         display(Markdown(f"#### Reads in Consensus (RiC) Comparison"))
         fig_ric, _ = plot_comparison_with_difference(
@@ -239,7 +239,7 @@ def display_run_analysis(run_id, all_results_data):
     except Exception as e:
         print(f"Error plotting RiC: {e}")
 
-    # Plot 2: Length Comparison [cite: 347]
+    # Plot 2: Length Comparison
     try:
         display(Markdown(f"#### Sequence Length Comparison"))
         fig_len, _ = plot_comparison_with_difference(
@@ -253,7 +253,7 @@ def display_run_analysis(run_id, all_results_data):
     except Exception as e:
         print(f"Error plotting Length: {e}")
 
-    # Plot 3: GC Content Comparison [cite: 347]
+    # Plot 3: GC Content Comparison
     try:
         # Check if GC columns exist and have data before plotting
         if 'Dorado_GC' in run_df.columns and 'Guppy_GC' in run_df.columns and run_df[['Dorado_GC', 'Guppy_GC']].notna().all(axis=1).any():
@@ -271,7 +271,7 @@ def display_run_analysis(run_id, all_results_data):
     except Exception as e:
         print(f"Error plotting GC Content: {e}")
 
-    # Plot 4: Identity Distribution [cite: 348]
+    # Plot 4: Identity Distribution
     try:
         display(Markdown(f"#### Sequence Identity Distribution"))
         fig_identity, _ = plot_histogram(
@@ -285,7 +285,7 @@ def display_run_analysis(run_id, all_results_data):
     except Exception as e:
         print(f"Error plotting Identity: {e}")
 
-    # Plot 5 & 6: Homopolymer Count/MaxLen Difference (Optional) [cite: 348]
+    # Plot 5 & 6: Homopolymer Count/MaxLen Difference (Optional)
     # Example for Homo_Count difference
     try:
         if 'Dorado_Homo_Count' in run_df.columns and 'Guppy_Homo_Count' in run_df.columns:
@@ -427,75 +427,88 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
          return HTML("<p>Error: Alignment object not found in provided data.</p>")
 
     try:
-        # Biopython's Alignment object can be indexed to get aligned sequences
-        # The structure might vary slightly based on Biopython version.
-        # Often it's alignment[0] for target (e.g., Dorado) and alignment[1] for query (e.g., Guppy)
+        # --- Try using alignment.format("fasta") [Requires Biopython >= 1.79 approx] ---
+        aligned_dorado = None
+        aligned_guppy = None
+        if hasattr(alignment, 'format') and callable(alignment.format):
+            try:
+                # Import necessary modules INSIDE the function or ensure they are at top of viz_handler.py
+                from Bio import SeqIO
+                import io # For StringIO
 
-        # Safely access aligned sequences
-        if hasattr(alignment, 'target') and hasattr(alignment, 'query'):
-             aligned_dorado = str(alignment.target) # Adapt if keys are different
-             aligned_guppy = str(alignment.query)
-        elif isinstance(alignment, (list, tuple)) and len(alignment) >= 2 and hasattr(alignment[0], 'seq') and hasattr(alignment[1], 'seq'):
-             # Handle older or different alignment object structures if needed
-             aligned_dorado = str(alignment[0].seq)
-             aligned_guppy = str(alignment[1].seq)
-        else:
-            aligned_seqs_str = str(alignment) # Get the full string representation
+                fasta_formatted_alignment = alignment.format("fasta")
+                # Use StringIO to treat the string as a file for SeqIO
+                seq_records = list(SeqIO.parse(io.StringIO(fasta_formatted_alignment), "fasta"))
+
+                if len(seq_records) == 2:
+                    # Assume order: first is target (Dorado), second is query (Guppy)
+                    # This assumption might need verification based on Bio.Align behavior
+                    aligned_dorado = str(seq_records[0].seq)
+                    aligned_guppy = str(seq_records[1].seq)
+                    # print("Debug: Successfully parsed alignment using alignment.format('fasta')") # Optional confirmation
+                else:
+                    print(f"Warning: alignment.format('fasta') produced {len(seq_records)} records (expected 2). Falling back to string parsing.")
+            except Exception as fmt_ex:
+                print(f"Warning: alignment.format('fasta') failed ({fmt_ex}), falling back to string parsing.")
+
+        # --- Fallback: If .format("fasta") failed or wasn't available, use improved string parsing ---
+        if aligned_dorado is None or aligned_guppy is None:
+            # print("Debug: Using fallback string parsing for alignment.") # Optional confirmation
+            aligned_seqs_str = str(alignment)
             lines = aligned_seqs_str.strip().split('\n')
             aligned_dorado = ""
             aligned_guppy = ""
-            # Counter to track lines within a potential alignment block (target, match, query)
-            # We assume target is line 0, query is line 2 of these blocks
-            line_counter_in_block = 0
+            # Regex to find potential prefixes like 'target   0 ' or 'query   0 ' etc.
+            prefix_pattern = re.compile(r'^[a-zA-Z\d\s_.\-]+\s+\d+\s+') # More general prefix pattern
+
+            current_seq_type = None # Track if the last prefix was target or query
 
             for line in lines:
                 line_strip = line.strip()
-                if not line_strip: continue # Skip empty lines
-                # Find the sequence part (bases and dashes) at the end of the line
+                if not line_strip: continue
+
+                is_target_line = False
+                is_query_line = False
+
+                # Check for known prefixes
+                if prefix_pattern.match(line):
+                    # Crude check for target/query keywords
+                    if 'target' in line.lower() or 'seq1' in line.lower():
+                        current_seq_type = 'target'
+                        is_target_line = True
+                    elif 'query' in line.lower() or 'seq2' in line.lower():
+                        current_seq_type = 'query'
+                        is_query_line = True
+                    else:
+                        # If prefix matched but no keyword, assume based on previous line? Risky.
+                        # Or assume it continues the previous sequence type if wrapped?
+                        # Let's assume prefix means it's either target/query for now
+                        if current_seq_type == 'target': is_target_line = True
+                        if current_seq_type == 'query': is_query_line = True
+
+
+                # Extract sequence part from the end of the line
                 seq_part_match = re.search(r'[ACGTN-]+$', line)
-
                 if seq_part_match:
-                    seq_part = seq_part_match.group(0) # Extract the sequence part
-                    # Assuming Target (Dorado) is the first sequence line in a block
-                    if line_counter_in_block == 0:
+                    seq_part = seq_part_match.group(0)
+                    if is_target_line:
                         aligned_dorado += seq_part
-                    # Assuming Query (Guppy) is the third sequence line in a block
-                    elif line_counter_in_block == 2:
+                    elif is_query_line:
                         aligned_guppy += seq_part
-                # Increment and wrap the counter (assumes blocks of 3 lines: target, match, query)
-                # Only increment if we likely processed a line within a block (heuristic: it contained sequence)
-                # A more robust parser might be needed if format isn't strictly 3 lines always
-                if seq_part_match:
-                    # This simple modulo assumes strict 3-line blocks; adjust if format varies
-                    line_counter_in_block = (line_counter_in_block + 1) % 3
-                else:
-                    # Reset if we encounter a line without sequence (e.g., header/footer)
-                    line_counter_in_block = 0
-            else:
-                 raise ValueError("Could not parse aligned sequences from alignment object string representation.")
+                    # Handle wrapped lines without prefix (less common with PairwiseAligner str output)
+                    # elif current_seq_type == 'target':
+                    #     aligned_dorado += seq_part # Assume continuation
+                    # elif current_seq_type == 'query':
+                    #     aligned_guppy += seq_part # Assume continuation
 
-        # --- Debug Prints (Keep these) ---
-        print("\n" + "=" * 20 + " DEBUG Alignment Data " + "=" * 20)
-        print(f"Sample ID (from dict): {alignment_dict.get('sample_id', 'N/A')}") # Make sure sample_id is passed if you want it here
-        print(f"Raw Alignment Object (`alignment` variable):\n{alignment}")
-        print("-" * 62)
-        print(f"Extracted Dorado String (len={len(aligned_dorado)}):")
-        print(aligned_dorado)
-        print("-" * 62)
-        print(f"Extracted Guppy String (len={len(aligned_guppy)}):")
-        print(aligned_guppy)
-        print("=" * 62 + "\n")
-        # --- End Debug Prints ---
         seq_length = len(aligned_dorado)
 
-        if seq_length != len(aligned_guppy):
-            print(f"ERROR in format_alignment_html: Aligned sequence lengths still differ after parsing!")
+        # --- Length Check (Keep) ---
+        if seq_length == 0 or (seq_length != len(aligned_guppy)): # Added check for 0 length
+            print(f"ERROR in format_alignment_html: Aligned sequence lengths differ or are zero!")
             print(f"  Dorado Length: {seq_length}, Guppy Length: {len(aligned_guppy)}")
-            return HTML("<p><b>Error: Cannot display alignment. Internal inconsistency detected (aligned sequence lengths differ AFTER parsing). Check parsing logic.</b></p>")
-
-        if seq_length == 0:
-             return HTML("<p>Error: Alignment resulted in empty sequences.</p>")
-
+            return HTML("<p><b>Error: Cannot display alignment. Internal inconsistency detected (aligned sequence lengths differ or are zero AFTER parsing). Check parsing logic or alignment object.</b></p>")
+        # --- End Check ---
 
         # Start HTML generation
         html_parts = []
@@ -547,5 +560,8 @@ def format_alignment_html(alignment_dict: dict, window_size: int = 100) -> HTML:
         return HTML(''.join(html_parts))
 
     except Exception as e:
-        # Catch any error during formatting
-        return HTML(f"<p>Error generating alignment display: {str(e)}</p>")
+        import traceback
+        print("--- EXCEPTION IN format_alignment_html ---")
+        traceback.print_exc() # Print full traceback for unexpected errors
+        print("--- END EXCEPTION ---")
+        return HTML(f"<p><b>Error generating alignment display: {str(e)}</b></p>")
