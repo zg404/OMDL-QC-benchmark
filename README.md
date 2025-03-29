@@ -35,8 +35,6 @@ nanopore-consensus-benchmark/
 ├── viz_handler.py            # Python module for plotting and visualization functions
 ├── requirements.txt          # Python package dependencies
 ├── test_book.ipynb           # Notebook for testing functions (optional)
-├── .dev.blueprint.md         # Development plan (internal use)
-├── .dev.outline.md           # Project outline and context (internal use)
 ├── results/                  # Directory for output TSV files
 │   ├── {run_id}_comparison_data.tsv
 │   └── overall_comparison_summary.tsv
