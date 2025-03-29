@@ -5,11 +5,5 @@ scipy
 matplotlib
 seaborn
 ipython
-pathlib
-plotly
 ipywidgets
-xlsxwriter
-requests
-openpyxl
-tqdm
 natsort
